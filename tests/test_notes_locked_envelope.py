@@ -283,6 +283,7 @@ def test_read_locked_note(case: str, monkeypatch: pytest.MonkeyPatch) -> None:
         "trash",
         "linked",
         "wrong-ack",
+        "multiline",
     ],
 )
 def test_locked_note_edit(case: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -366,7 +367,8 @@ def test_locked_note_edit(case: str, monkeypatch: pytest.MonkeyPatch) -> None:
         ]
     })
     service = NotesService("https://example.test", MagicMock(), {})
-    monkeypatch.setattr(service.raw, "lookup", MagicMock(return_value=response))
+    lookup = MagicMock(return_value=response)
+    monkeypatch.setattr(service.raw, "lookup", lookup)
     check_folder = MagicMock()
     monkeypatch.setattr(service, "_verify_note_source_folder", check_folder)
 
@@ -389,12 +391,13 @@ def test_locked_note_edit(case: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(CloudKitContainerClient, "raw_post", submit)
     kwargs = {
         "old": "Old",
-        "new": "New",
+        "new": "New\nline" if case == "multiline" else "New",
         "password": "wrong" if case == "wrong-password" else "synthetic passphrase",
         "expected_change_tag": "stale" if case == "stale" else "revision",
     }
     if case not in {"saved", "wrong-ack"}:
         error = {
+            "multiline": ValueError,
             "stale": NoteRevisionConflict,
             "wrong-password": NoteLockedError,
             "missing-field": NoteLockedError,
@@ -407,6 +410,8 @@ def test_locked_note_edit(case: str, monkeypatch: pytest.MonkeyPatch) -> None:
         }[case]
         with pytest.raises(error):
             service.replace_locked_note_text("locked-note", **kwargs)
+        if case == "multiline":
+            lookup.assert_not_called()
         submit.assert_not_called()
         return
     if case == "wrong-ack":
