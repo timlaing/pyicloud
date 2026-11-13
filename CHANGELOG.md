@@ -12,6 +12,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 - Add revision-checked, single-line text replacement for supported private
   Notes protected with a custom Notes password, without removing the lock.
+  The CLI supports this through `notes replace-text --unlock`.
 
 ## [2026.11.2] - 2026-11-13
 

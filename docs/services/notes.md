@@ -281,6 +281,13 @@ icloud notes replace-text NOTE_ID --if-match REVISION \
   --find-file ./old.txt --replacement-file ./new.txt
 ```
 
+Add `--unlock` to `replace-text` to edit a supported custom-password locked
+note without removing its lock. The command prompts for the Notes password
+without echoing it and requires non-empty, single-line UTF-8 fragments.
+Read the current revision with `notes get NOTE_ID --unlock --format json`
+before editing. If the write outcome is unknown, read the note again before
+retrying. Keep the local input files private; they contain plaintext.
+
 To append a table without replacing existing note content, pass a UTF-8 JSON
 file containing equal-length rows, such as `[["Item", "Status"], ["Example", ""]]`.
 Use `get-table` to read the grid, table ID, and both current revisions. Table,

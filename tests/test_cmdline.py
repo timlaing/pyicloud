@@ -4583,6 +4583,78 @@ def test_notes_unlock_prompt(case: str) -> None:
         get.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "case", ["saved", "no-terminal", "multiline", "empty", "missing-revision"]
+)
+def test_notes_replace_locked_text(case: str) -> None:
+    """Require an interactive prompt, valid input, and an explicit revision."""
+    api = FakeAPI()
+    folder = _unique_session_dir("notes-locked-replace")
+    old, new = folder / "old.txt", folder / "new.txt"
+    old.write_text("old text\n", encoding="utf-8")
+    new.write_text(
+        {"multiline": "new\ntext\n", "empty": "\n"}.get(case, "new text\n"),
+        encoding="utf-8",
+    )
+    args = [
+        "notes",
+        "replace-text",
+        "Note/LOCKED",
+        "--unlock",
+        "--find-file",
+        str(old),
+        "--replacement-file",
+        str(new),
+    ]
+    if case != "missing-revision":
+        args.extend(["--if-match", "old-tag"])
+    module = "pyicloud.cli.commands.notes"
+    with (
+        patch(
+            f"{module}.sys",
+            SimpleNamespace(
+                stdin=SimpleNamespace(isatty=lambda: case != "no-terminal")
+            ),
+        ),
+        patch(f"{module}.typer.prompt", return_value="synthetic password") as prompt,
+        patch.object(
+            api.notes,
+            "replace_locked_note_text",
+            create=True,
+            return_value=NoteWriteResult(id="Note/LOCKED", record_change_tag="new-tag"),
+        ) as write,
+        patch.object(api.notes, "replace_note_text", create=True) as plain_write,
+    ):
+        result = _invoke(api, *args, output_format="json")
+    plain_write.assert_not_called()
+    assert "synthetic password" not in result.output
+    if case == "saved":
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout) == {
+            "id": "Note/LOCKED",
+            "record_change_tag": "new-tag",
+        }
+        prompt.assert_called_once_with("Notes password", hide_input=True, err=True)
+        write.assert_called_once_with(
+            "Note/LOCKED",
+            old="old text",
+            new="new text",
+            expected_change_tag="old-tag",
+            password="synthetic password",
+        )
+    else:
+        assert result.exit_code != 0
+        message = {
+            "no-terminal": "requires an interactive terminal",
+            "multiline": "requires non-empty single-line text",
+            "empty": "requires non-empty single-line text",
+            "missing-revision": "--if-match",
+        }[case]
+        assert message in result.output or message in str(result.exception)
+        prompt.assert_not_called()
+        write.assert_not_called()
+
+
 def test_notes_commands_report_errors() -> None:
     """Notes commands should surface clean selection and note-specific errors."""
 
