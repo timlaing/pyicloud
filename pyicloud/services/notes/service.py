@@ -1077,6 +1077,8 @@ class NotesService(BaseService):
         expected_change_tag: str,
     ) -> NoteWriteResult:
         """Replace one text fragment without removing a custom-password lock."""
+        if any(not text or text.splitlines() != [text] for text in (old, new)):
+            raise ValueError("Locked replacement requires non-empty single-line text.")
         record, folder_id = self._require_write_note(
             note_id, expected_change_tag, locked=True
         )
