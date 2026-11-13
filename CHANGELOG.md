@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog].
 
 Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semver.org/). Starting with the next release after `2.7.0`, versions will follow [CalVer](https://calver.org/) format (`YYYY.M.PATCH`).
 
+## [Unreleased]
+
+### Added
+
+- Add private Notes tag removal, whole-table removal, and confirmed permanent
+  deletion of individual notes from Recently Deleted.
+
+### Changed
+
+- Allow targeted Notes text replacement without an image and across formatting
+  runs, preserving formatting outside the selection.
+
+### Fixed
+
+- Preserve paragraph breaks when removing a Notes tag whose formatting run
+  includes its trailing newline.
+
+### Refactored
+
+- Centralize Notes tag validation errors without changing their public messages.
+
 ## [2026.11.1] - 2026-11-12
 
 ### Fixed
@@ -18,11 +39,6 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 - Support opt-in local reads of private iCloud Notes locked with a custom
   Notes password, including a hidden CLI prompt.
-
-### Added
-
-- Add private Notes tag removal, whole-table removal, and confirmed permanent
-  deletion of individual notes from Recently Deleted.
 
 ### Security
 
@@ -47,9 +63,6 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Raise the minimum supported `pydantic` version to `2.14.3`, keeping runtime requirements and minimum-installation constraints aligned.
 
 - Raise the minimum supported `typing-extensions` version to `4.16.0`, keeping runtime requirements and minimum-installation constraints aligned.
-
-- Allow targeted Notes text replacement without an image and across formatting
-  runs, preserving formatting outside the selection.
 
 - Drive library metadata reads (`DriveService.get_node_data`) reject HTTP redirects for all callers, including ordinary library reads, rather than following a different service route.
 
@@ -85,9 +98,6 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Remove `pyicloud.services.photos_legacy` module; photos are now accessed solely through the `pyicloud.services.photos` package.
 
 ### Fixed
-
-- Preserve paragraph breaks when removing a Notes tag whose formatting run
-  includes its trailing newline.
 
 - Resolve Notes table UUID registry names when inserting rows or columns, so
   readable tables with reordered key or type registries can also be resized.

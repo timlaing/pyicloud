@@ -159,6 +159,7 @@ _UNVERIFIED_IMAGE = (
     "Could not verify the note's existing image preview; no note write submitted"
 )
 _UNVERIFIED_PIN = "Could not verify the private note's per-user pin state"
+_UNVERIFIED_TAGS = "Could not verify existing Notes tags"
 _PIN_FIELDS = frozenset({"IsPinned", "Folder", "Note", "LastViewedModificationDate"})
 _TABLE_ASSET_FIELDS = ("MergeableDataAsset", "EncryptedValues", "EncryptedValuesAsset")
 _UNVERIFIED_TABLE = "Could not verify the table linked to this private note"
@@ -1139,7 +1140,7 @@ class NotesService(BaseService):
         ):
             value = record.fields.get_value(name)
             if not isinstance(value, bytes):
-                raise NotesError("Could not verify existing Notes tags")
+                raise NotesError(_UNVERIFIED_TAGS)
             fields[name] = NotesWriteField(
                 value=base64.b64encode(value).decode("ascii")
             )
@@ -1151,7 +1152,7 @@ class NotesService(BaseService):
             or not isinstance(version, int)
             or isinstance(version, bool)
         ):
-            raise NotesError("Could not verify existing Notes tags")
+            raise NotesError(_UNVERIFIED_TAGS)
         fields["CreationDate"] = NotesWriteField(value=self._date_millis(created))
         fields["MinimumSupportedNotesVersion"] = NotesWriteField(value=version)
         return NotesObjectWriteRecord(
@@ -1547,7 +1548,7 @@ class NotesService(BaseService):
         if len(tags) != len(tag_ids) or {tag.recordName for tag in tags} != set(
             tag_ids
         ):
-            raise NotesError("Could not verify existing Notes tags")
+            raise NotesError(_UNVERIFIED_TAGS)
         for tag in tags:
             if (
                 tag.recordType != "InlineAttachment"
@@ -1562,7 +1563,7 @@ class NotesService(BaseService):
                     tag.fields.get_value("TokenContentIdentifierEncrypted"), bytes
                 )
             ):
-                raise NotesError("Could not verify existing Notes tags")
+                raise NotesError(_UNVERIFIED_TAGS)
         return tags
 
     def _submit_linked_note_create(
