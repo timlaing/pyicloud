@@ -86,6 +86,9 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Preserve paragraph breaks when removing a Notes tag whose formatting run
+  includes its trailing newline.
+
 - Resolve Notes table UUID registry names when inserting rows or columns, so
   readable tables with reordered key or type registries can also be resized.
 

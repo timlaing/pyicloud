@@ -576,8 +576,13 @@ def remove_inline_note_object(compressed: bytes, obj: InlineObject) -> EncodedNo
     start = 0
     for index, run in enumerate(note.attribute_run):
         if run.attachment_info.attachment_identifier == obj.id:
-            stop = start + run.length
-            del note.attribute_run[index]
+            stop = start + 1
+            if run.length > 1:
+                # Hashtag runs can include a paragraph newline after the marker.
+                run.length -= 1
+                run.ClearField("attachment_info")
+            else:
+                del note.attribute_run[index]
             break
         start += run.length
     else:

@@ -45,6 +45,7 @@ from pyicloud.services.notes.encoding import (
     encode_new_note,
     encode_note_edit,
     inline_note_objects,
+    remove_inline_note_object,
     replace_inline_note_text,
     validate_plain_document,
     validate_rich_document,
@@ -2272,6 +2273,53 @@ def test_remove_note_objects(
         assert writes == [NOTE_ID]
     else:
         assert not writes
+
+
+@pytest.mark.parametrize("include_newline", [False, True])
+def test_remove_tag_preserves_paragraph_break(include_newline: bool) -> None:
+    """Remove only the marker even when its run includes the paragraph newline."""
+    before = "Before \U0001f600"
+    encoded = encode_new_note("Title", f"{before}X\nAfter")
+    proto = notes_pb2.NoteStoreProto.FromString(
+        zlib.decompress(base64.b64decode(encoded.body))
+    )
+    note = proto.document.note
+    note.note_text = note.note_text.replace("X", "\ufffc")
+    prefix = notes_pb2.AttributeRun()
+    prefix.CopyFrom(note.attribute_run[2])
+    prefix.length = len(before.encode("utf-16-le")) // 2
+    marker = notes_pb2.AttributeRun()
+    marker.CopyFrom(note.attribute_run[2])
+    marker.length = 1 + int(include_newline)
+    marker.attachment_info.attachment_identifier = "target-tag"
+    marker.attachment_info.type_uti = TAG_UTI
+    note.attribute_run[2].CopyFrom(marker)
+    note.attribute_run.insert(2, prefix)
+    if not include_newline:
+        newline = notes_pb2.AttributeRun()
+        newline.CopyFrom(prefix)
+        newline.length = 1
+        note.attribute_run.insert(4, newline)
+    keep = InlineObject("keep-tag", TAG_UTI)
+    compressed = base64.b64decode(
+        append_inline_note_object(zlib.compress(proto.SerializeToString()), keep)
+    )
+    original = notes_pb2.NoteStoreProto.FromString(zlib.decompress(compressed))
+    result = remove_inline_note_object(compressed, InlineObject("target-tag", TAG_UTI))
+    removed = base64.b64decode(result.body)
+    assert inline_note_objects(removed) == (keep,)
+    edited = notes_pb2.NoteStoreProto.FromString(zlib.decompress(removed)).document.note
+    assert edited.note_text == original.document.note.note_text.replace("\ufffc", "", 1)
+    assert f"{before}\nAfter" in edited.note_text
+    assert sum(span.length for span in edited.substring if span.tombstone) == 1
+    tail_start = 4 if include_newline else 5
+    assert edited.attribute_run[4:] == original.document.note.attribute_run[tail_start:]
+    if include_newline:
+        expected = notes_pb2.AttributeRun()
+        expected.CopyFrom(marker)
+        expected.length = 1
+        expected.ClearField("attachment_info")
+        assert edited.attribute_run[3] == expected
 
 
 def _response(payload: Any, *, status: int = 200) -> MagicMock:
