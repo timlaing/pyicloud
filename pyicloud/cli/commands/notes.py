@@ -99,6 +99,15 @@ def _notes_call(api: PyiCloudService, fn: Callable[[], Any]) -> Any:
         raise CLIAbort(str(err)) from err
 
 
+def _require_unlock_terminal(unlock: bool) -> None:
+    if unlock and not sys.stdin.isatty():
+        raise CLIAbort("--unlock requires an interactive terminal.")
+
+
+def _prompt_notes_password() -> str:
+    return str(typer.prompt("Notes password", hide_input=True, err=True))
+
+
 def _print_note_rows(state: CLIState, title: str, rows: list[Any]) -> None:
     """Render note summary rows in text mode."""
 
@@ -343,8 +352,7 @@ def notes_get(
 
     if unlock and with_attachments:
         raise CLIAbort("--unlock cannot be combined with --with-attachments.")
-    if unlock and not sys.stdin.isatty():
-        raise CLIAbort("--unlock requires an interactive terminal.")
+    _require_unlock_terminal(unlock)
     store_command_options(
         ctx,
         username=username,
@@ -363,7 +371,7 @@ def notes_get(
             api,
             lambda: notes.get(
                 note_id,
-                password=typer.prompt("Notes password", hide_input=True, err=True),
+                password=_prompt_notes_password(),
             ),
         )
     else:
@@ -830,11 +838,30 @@ def notes_replace_text(
         help="Single-line UTF-8 replacement text.",
     ),
     if_match: str = typer.Option(..., "--if-match", help=_REVISION_HELP),
+    unlock: bool = typer.Option(
+        False, "--unlock", help="Prompt for the custom Notes password; keep the lock."
+    ),
 ) -> None:
     """Replace one text fragment without replacing the whole note."""
+    _require_unlock_terminal(unlock)
     old = _read_note_body(find_file).removesuffix("\n")
     new = _read_note_body(replacement_file).removesuffix("\n")
+    if unlock and any(not text or text.splitlines() != [text] for text in (old, new)):
+        raise CLIAbort("Locked replacement requires non-empty single-line text.")
     common.store(ctx)
+    if unlock:
+        _notes_write(
+            ctx,
+            _UPDATED_NOTE,
+            lambda notes: notes.replace_locked_note_text(
+                note_id,
+                old=old,
+                new=new,
+                expected_change_tag=if_match,
+                password=_prompt_notes_password(),
+            ),
+        )
+        return
     _notes_write(
         ctx,
         _UPDATED_NOTE,
