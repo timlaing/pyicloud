@@ -60,7 +60,8 @@ from pyicloud.services.notes.decoding import BodyDecoder
 from pyicloud.session import PyiCloudSession
 
 from ._constants import NOTES_ZONE, NOTES_ZONE_NAME, NOTES_ZONE_REQ
-from ._locked_note import decrypt_locked_note_body
+from ._locked_asset import download_locked_asset
+from ._locked_note import decrypt_locked_note_asset, decrypt_locked_note_body
 from .client import CloudKitNotesClient
 from .domain import AttachmentId, NoteBody
 from .encoding import (
@@ -548,6 +549,84 @@ class NotesService(BaseService):
         if body is None or not body.text:
             raise NoteLockedError(error)
         return body
+
+    def locked_attachment_ids(
+        self, note_id: str, *, password: str
+    ) -> tuple[AttachmentId, ...]:
+        """Discover supported image IDs from the authenticated locked note body."""
+        record = self._lookup_note_record(note_id, require_single=True)
+        summary = self._summary_from_record(record)
+        if not summary.is_locked or summary.is_deleted:
+            raise NoteLockedError("Expected an active custom-password locked note.")
+        body = self._read_locked_body(record, summary, password, False)
+        return tuple(
+            item
+            for item in body.attachment_ids
+            if item.identifier and item.type_uti in {"public.jpeg", "public.png"}
+        )
+
+    def download_locked_attachment(
+        self, note_id: str, attachment_id: str, *, password: str
+    ) -> bytes:
+        """Return one authenticated JPEG or PNG without writing a local file."""
+        error = "Could not verify the locked Notes attachment."
+        matches = [
+            item
+            for item in self.locked_attachment_ids(note_id, password=password)
+            if item.identifier == attachment_id
+        ]
+        if len(matches) != 1:
+            raise NotesError(error)
+        attachment = self._lookup_locked_child(note_id, attachment_id, "Attachment")
+        media_ref = attachment.fields.get_value("Media")
+        note_ref = attachment.fields.get_value("Note")
+        if (
+            not isinstance(media_ref, CKReference)
+            or not media_ref.recordName.strip()
+            or not isinstance(note_ref, CKReference)
+            or note_ref.recordName != note_id
+            or any(
+                ref.zoneID is not None and ref.zoneID.zoneName != NOTES_ZONE_NAME
+                for ref in (media_ref, note_ref)
+            )
+            or attachment.fields.get_value("UTI") != matches[0].type_uti
+        ):
+            raise NotesError(error)
+        media = self._lookup_locked_child(note_id, media_ref.recordName, "Media")
+        asset = media.fields.get_value("Asset")
+        if not isinstance(asset, CKAssetToken):
+            raise NotesError(error)
+        data = download_locked_asset(asset)
+        try:
+            image = decrypt_locked_note_asset(data, password)
+        except ValueError:
+            raise NotesError(
+                "Could not authenticate the locked Notes attachment."
+            ) from None
+        magic = (
+            b"\xff\xd8\xff"
+            if matches[0].type_uti == "public.jpeg"
+            else b"\x89PNG\r\n\x1a\n"
+        )
+        if not image.startswith(magic):
+            raise NotesError(error)
+        return image
+
+    def _lookup_locked_child(self, note_id: str, record_id: str, kind: str) -> CKRecord:
+        records = self._raw.lookup([record_id]).records
+        record = records[0] if len(records) == 1 else None
+        if (
+            not isinstance(record, CKRecord)
+            or record.recordName != record_id
+            or record.recordType != kind
+            or record.deleted
+            or record.fields.get_value("Deleted")
+            or not self._is_private_record(record)
+            or record.parent is None
+            or record.parent.recordName != note_id
+        ):
+            raise NotesError("Could not verify the locked Notes attachment.")
+        return record
 
     def create_note(
         self, title: str, text: str | RichNoteBody = "", *, folder_id: str

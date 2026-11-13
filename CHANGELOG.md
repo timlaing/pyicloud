@@ -8,6 +8,11 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ## [Unreleased]
 
+### Added
+
+- Discover and read supported JPEG and PNG attachments on custom-password
+  locked Notes through the Python API.
+
 ### Security
 
 - Run weekly Python and GitHub Actions CodeQL analysis independently of pull-request validation.
