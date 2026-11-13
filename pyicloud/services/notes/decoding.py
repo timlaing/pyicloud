@@ -43,11 +43,27 @@ def _decompress(blob: bytes) -> bytes:
         return zlib.decompress(blob, -zlib.MAX_WBITS)
 
 
+def _decompress_bounded(blob: bytes, limit: int) -> bytes:
+    window = zlib.MAX_WBITS | 32
+    try:
+        stream = zlib.decompressobj(window)
+        doc = stream.decompress(blob, limit + 1)
+    except zlib.error:
+        stream = zlib.decompressobj(-zlib.MAX_WBITS)
+        doc = stream.decompress(blob, limit + 1)
+    if len(doc) > limit or not stream.eof or stream.unused_data:
+        raise ValueError("Invalid or oversized Notes document")
+    return doc
+
+
 class BodyDecoder:
     """Decode TextDataEncrypted (base64, compressed) to NoteBody."""
 
     def decode(  # noqa: S3776
-        self, text_data_encrypted_b64: str | bytes | bytearray | None
+        self,
+        text_data_encrypted_b64: str | bytes | bytearray | None,
+        *,
+        max_document_bytes: int | None = None,
     ) -> NoteBody | None:
         """Decode a base64/compressed note body into a NoteBody."""
         if text_data_encrypted_b64 is None:
@@ -56,7 +72,11 @@ class BodyDecoder:
         if not raw:
             return None
         try:
-            doc = _decompress(raw)
+            doc = (
+                _decompress(raw)
+                if max_document_bytes is None
+                else _decompress_bounded(raw, max_document_bytes)
+            )
         except Exception as e:
             LOGGER.debug("notes.decoder.decompress_fail %s", e)
             return None

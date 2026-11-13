@@ -119,8 +119,12 @@ if attachment:
 
 Notes caveats:
 
-- `get()` raises `NoteLockedError` for passphrase-locked notes whose content
-  cannot be read.
+- `get(note_id, password=...)` can read supported private notes locked with a
+  custom Notes password. Without it, or if authentication fails, `get()`
+  raises `NoteLockedError`. The password is used locally and is not sent to Apple.
+- The returned note still has `is_locked=True`: reading it does not change
+  its lock. Device-passcode locks, locked attachment access, and locked writes
+  are not supported.
 - `get()`, `render_note()`, and `export_note()` raise `NoteNotFound` when the
   note ID does not exist.
 - `api.notes.raw` is available for advanced/debug workflows, but it is not the
@@ -330,6 +334,12 @@ icloud notes export NOTE_ID \
   --export-mode archival \
   --assets-dir ./exports/assets
 ```
+
+Use `icloud notes get NOTE_ID --unlock` for a supported locked note. The
+custom Notes password is entered at a hidden terminal prompt, not on the
+command line. Do not combine this with `--with-attachments`. The command
+prints the decrypted note, so avoid redirecting the output to an insecure
+file or using it in a recorded terminal.
 
 `icloud notes export` stays explicit by note id. Title filters are intentionally
 handled by `icloud notes search` rather than by bulk export flags.
