@@ -190,7 +190,10 @@ def test_locked_note_authentication_failure(part: str) -> None:
         "other-zone",
     ],
 )
-def test_read_locked_note(case: str, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("operation", ["get", "render"])
+def test_read_locked_note(
+    case: str, operation: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Open only supported, authenticated documents and never send the password."""
     plaintext = base64.b64decode(
         encode_new_note("Synthetic title", "Synthetic text").body
@@ -235,6 +238,15 @@ def test_read_locked_note(case: str, monkeypatch: pytest.MonkeyPatch) -> None:
     password = {"missing-password": None, "wrong-password": "incorrect"}.get(
         case, "synthetic passphrase"
     )
+    if operation == "render":
+        if case in {"zlib", "gzip", "raw", "attachments"}:
+            html = service.render_note("locked-note", password=password)
+            assert "<" in html and "Synthetic text" in html
+        else:
+            with pytest.raises(NoteLockedError):
+                service.render_note("locked-note", password=password)
+        lookup.assert_called_once_with(record_names=["locked-note"], desired_keys=None)
+        return
     if case in {"zlib", "gzip", "raw"}:
         note = service.get("locked-note", password=password)
         assert note.is_locked and note.record_change_tag == "revision"

@@ -4583,6 +4583,51 @@ def test_notes_unlock_prompt(case: str) -> None:
         get.assert_not_called()
 
 
+@pytest.mark.parametrize("case", ["json", "text", "no-terminal"])
+def test_notes_render_unlock(case: str) -> None:
+    """Use the hidden prompt and return HTML without interpreting its markup."""
+    api = FakeAPI()
+    module = "pyicloud.cli.commands.notes"
+    html = "<p>[bold]Synthetic[/bold]</p>"
+    with (
+        patch(
+            f"{module}.sys",
+            SimpleNamespace(
+                stdin=SimpleNamespace(isatty=lambda: case != "no-terminal")
+            ),
+        ),
+        patch(f"{module}.typer.prompt", return_value="synthetic password") as prompt,
+        patch.object(api.notes, "render_note", return_value=html) as render,
+    ):
+        result = _invoke(
+            api,
+            "notes",
+            "render",
+            "Note/LOCKED",
+            "--unlock",
+            output_format="json" if case == "json" else "text",
+        )
+    if case == "no-terminal":
+        assert result.exit_code != 0
+        assert "--unlock requires an interactive terminal" in str(result.exception)
+        prompt.assert_not_called()
+        render.assert_not_called()
+        return
+    assert result.exit_code == 0, result.output
+    assert "synthetic password" not in result.output
+    if case == "json":
+        assert json.loads(result.stdout) == {"note_id": "Note/LOCKED", "html": html}
+    else:
+        assert result.stdout == html + "\n"
+    prompt.assert_called_once_with("Notes password", hide_input=True, err=True)
+    render.assert_called_once_with(
+        "Note/LOCKED",
+        preview_appearance="light",
+        pdf_object_height=600,
+        password="synthetic password",
+    )
+
+
 def test_notes_commands_report_errors() -> None:
     """Notes commands should surface clean selection and note-specific errors."""
 
