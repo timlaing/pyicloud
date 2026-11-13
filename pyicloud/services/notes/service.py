@@ -60,7 +60,7 @@ from pyicloud.services.notes.decoding import BodyDecoder
 from pyicloud.session import PyiCloudSession
 
 from ._constants import NOTES_ZONE, NOTES_ZONE_NAME, NOTES_ZONE_REQ
-from ._locked_note import decrypt_locked_note_body
+from ._locked_note import decrypt_locked_note_body, rewrite_locked_note_body
 from .client import CloudKitNotesClient
 from .domain import AttachmentId, NoteBody
 from .encoding import (
@@ -155,6 +155,35 @@ _IMAGE_METADATA = (
     "ReplicaIDToUserIDEncrypted",
 )
 _IMAGE_NOTE_FIELDS = _PLAIN_NOTE_FIELDS.union(_IMAGE_METADATA)
+_LOCKED_BYTES = (
+    "TitleEncrypted",
+    "PasswordHint",
+    "CryptoInitializationVector",
+    "CryptoSalt",
+    "CryptoTag",
+    "CryptoWrappedKey",
+    "ReplicaIDToNotesVersionDataEncrypted",
+    "ReplicaIDToUserIDEncrypted",
+)
+_LOCKED_INTS = (
+    "AttachmentViewType",
+    "CryptoIterationCount",
+    "Deleted",
+    "MinimumSupportedNotesVersion",
+    "PaperStyleType",
+)
+_LOCKED_DATES = ("CreationDate", "FoldersModificationDate", "ModificationDate")
+_LOCKED_FIELDS = frozenset((
+    *_LOCKED_BYTES,
+    *_LOCKED_INTS,
+    *_LOCKED_DATES,
+    "Folder",
+    "Folders",
+    "TextDataEncrypted",
+))
+_UNSUPPORTED_LOCKED_EDIT = (
+    "Only supported private locked notes without attachments can be edited"
+)
 _UNVERIFIED_IMAGE = (
     "Could not verify the note's existing image preview; no note write submitted"
 )
@@ -1038,6 +1067,89 @@ class NotesService(BaseService):
         )
         return self._submit_note_update(record, folder_id, fields)
 
+    def replace_locked_note_text(
+        self,
+        note_id: str,
+        *,
+        old: str,
+        new: str,
+        password: str,
+        expected_change_tag: str,
+    ) -> NoteWriteResult:
+        """Replace one text fragment without removing a custom-password lock."""
+        if any(not text or text.splitlines() != [text] for text in (old, new)):
+            raise ValueError("Locked replacement requires non-empty single-line text.")
+        record, folder_id = self._require_write_note(
+            note_id, expected_change_tag, locked=True
+        )
+        if folder_id == _TRASH_FOLDER_ID:
+            raise NotesError(_RESTORE_BEFORE_EDIT)
+        raw = record.fields.get_value("TextDataEncrypted")
+        if not isinstance(raw, bytes):
+            raise NoteLockedError(_UNSUPPORTED_LOCKED_EDIT)
+        fields = self._locked_edit_fields(record)
+
+        def edit(body: bytes) -> bytes:
+            if inline_note_objects(body):
+                raise ValueError(_UNSUPPORTED_LOCKED_EDIT)
+            return base64.b64decode(replace_inline_note_text(body, old, new).body)
+
+        try:
+            encrypted = rewrite_locked_note_body(raw, password, edit)
+        except ValueError:
+            raise NoteLockedError(
+                "Could not edit this custom-password locked note."
+            ) from None
+        fields["TextDataEncrypted"] = NotesWriteField(
+            value=base64.b64encode(encrypted).decode("ascii")
+        )
+        fields["ModificationDate"] = NotesWriteField(value=time.time_ns() // 1_000_000)
+        return self._raw.modify_note(
+            NotesModifyOperation(
+                operationType="update",
+                record=NotesWriteRecord(
+                    recordName=note_id,
+                    recordType="PasswordProtectedNote",
+                    recordChangeTag=expected_change_tag,
+                    createShortGUID=True,
+                    parent=CKWriteParent(recordName=folder_id),
+                    fields=fields,
+                ),
+            )
+        )
+
+    def _locked_edit_fields(self, record: CKRecord) -> dict[str, NotesWriteField]:
+        fields: dict[str, NotesWriteField] = {}
+        for name in _LOCKED_BYTES:
+            value = record.fields.get_value(name)
+            if not isinstance(value, bytes):
+                raise NoteLockedError(_UNSUPPORTED_LOCKED_EDIT)
+            fields[name] = NotesWriteField(
+                value=base64.b64encode(value).decode("ascii")
+            )
+        for name in _LOCKED_INTS:
+            value = record.fields.get_value(name)
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise NoteLockedError(_UNSUPPORTED_LOCKED_EDIT)
+            fields[name] = NotesWriteField(value=value)
+        for name in _LOCKED_DATES:
+            value = record.fields.get_value(name)
+            if not isinstance(value, datetime):
+                raise NoteLockedError(_UNSUPPORTED_LOCKED_EDIT)
+            fields[name] = NotesWriteField(value=self._date_millis(value))
+        folder = record.fields.get_value("Folder")
+        if not isinstance(folder, CKReference) or folder.zoneID is None:
+            raise NoteLockedError(_UNSUPPORTED_LOCKED_EDIT)
+        ref = NotesFolderReference(
+            recordName=folder.recordName,
+            zoneID=CKZoneIDReq.model_validate(
+                folder.zoneID.model_dump(exclude_none=True)
+            ),
+        )
+        fields["Folder"] = NotesWriteField(value=ref)
+        fields["Folders"] = NotesWriteField(value=[ref])
+        return fields
+
     def add_note_tag(
         self, note_id: str, *, tag: str, expected_change_tag: str
     ) -> NoteTagResult:
@@ -1714,7 +1826,12 @@ class NotesService(BaseService):
         )
 
     def _require_write_note(
-        self, note_id: str, tag: str, *, existing_image: bool | None = False
+        self,
+        note_id: str,
+        tag: str,
+        *,
+        existing_image: bool | None = False,
+        locked: bool = False,
     ) -> tuple[CKRecord, str]:
         """Verify the note revision, supported data shape, and folder privacy."""
         if not note_id.strip() or not tag.strip():
@@ -1729,17 +1846,19 @@ class NotesService(BaseService):
         allowed = (
             _IMAGE_NOTE_FIELDS if existing_image is not False else _PLAIN_NOTE_FIELDS
         )
+        if locked:
+            allowed = _LOCKED_FIELDS
         if existing_image is None:
             existing_image = (
                 record.fields.get_value("FirstAttachmentThumbnail") is not None
             )
         empty_assets = ("TextDataAsset",) if existing_image else _EMPTY_ASSET_FIELDS
         if (
-            record.recordType != "Note"
+            record.recordType != ("PasswordProtectedNote" if locked else "Note")
             or record.deleted
             or record.fields.get_value("Deleted")
             or not self._is_private_record(record)
-            or not record.shortGUID
+            or (not locked and not record.shortGUID)
             or not set(record.fields.keys()) <= allowed
             or any(record.fields.get_value(name) is not None for name in empty_assets)
             or not isinstance(folder, CKReference)
@@ -1751,7 +1870,7 @@ class NotesService(BaseService):
                 and record.parent.recordName != folder.recordName
             )
         ):
-            raise NotesError(_UNSUPPORTED_WRITE)
+            raise NotesError(_UNSUPPORTED_LOCKED_EDIT if locked else _UNSUPPORTED_WRITE)
         self._verify_note_source_folder(folder.recordName)
         return record, folder.recordName
 

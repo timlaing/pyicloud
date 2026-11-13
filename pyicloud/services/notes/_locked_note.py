@@ -1,7 +1,9 @@
 """Parse and authenticate the observed custom-password Notes envelope."""
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from hashlib import pbkdf2_hmac
+from os import urandom
 import plistlib
 from typing import Any
 
@@ -106,6 +108,10 @@ def parse_locked_note_envelope(data: bytes) -> LockedNoteEnvelope:
 def decrypt_locked_note_body(data: bytes, password: str) -> bytes:
     """Return authenticated body bytes using one caller-supplied password."""
     envelope = parse_locked_note_envelope(data)
+    return _open_body(envelope, password)[0]
+
+
+def _open_body(envelope: LockedNoteEnvelope, password: str) -> tuple[bytes, AESGCM]:
     try:
         password_bytes = password.encode("utf-8")
         wrapping_key = pbkdf2_hmac(
@@ -115,6 +121,30 @@ def decrypt_locked_note_body(data: bytes, password: str) -> bytes:
         framed = envelope.encrypted_data
         nonce = framed[-_TRAILER_BYTES:-_TAG_BYTES]
         ciphertext_and_tag = framed[:-_TRAILER_BYTES] + framed[-_TAG_BYTES:]
-        return AESGCM(content_key).decrypt(nonce, ciphertext_and_tag, envelope.metadata)
+        cipher = AESGCM(content_key)
+        return cipher.decrypt(nonce, ciphertext_and_tag, envelope.metadata), cipher
     except (UnicodeEncodeError, InvalidUnwrap, InvalidTag):
         raise ValueError(_DECRYPT_FAILED) from None
+
+
+def rewrite_locked_note_body(
+    data: bytes, password: str, edit: Callable[[bytes], bytes]
+) -> bytes:
+    """Authenticate before editing and preserve the archive's key and metadata."""
+    envelope = parse_locked_note_envelope(data)
+    plaintext, cipher = _open_body(envelope, password)
+    updated = edit(plaintext)
+    nonce = urandom(_NONCE_BYTES)
+    if nonce == envelope.encrypted_data[-_TRAILER_BYTES:-_TAG_BYTES]:
+        raise ValueError("Could not generate a fresh Notes nonce")
+    encrypted = cipher.encrypt(nonce, updated, envelope.metadata)
+    archive = _read_plist(data, _MAX_ARCHIVE_BYTES)
+    objects = archive["$objects"]
+    root = _resolve(objects, archive["$top"]["root"])
+    objects[root["encryptedData"].data] = (
+        encrypted[:-_TAG_BYTES] + nonce + encrypted[-_TAG_BYTES:]
+    )
+    result = plistlib.dumps(archive, fmt=plistlib.PlistFormat.FMT_BINARY)
+    if len(result) > _MAX_ARCHIVE_BYTES:
+        raise ValueError(_INVALID)
+    return result
