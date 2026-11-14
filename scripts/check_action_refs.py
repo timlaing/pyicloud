@@ -21,24 +21,7 @@ USES_PATTERN = re.compile(
 
 FULL_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 
-SHORT_SHA_PATTERN = re.compile(r"^[0-9a-f]{7,39}$")
-
-VERSION_PATTERN = re.compile(r"^v?\d+(?:\.\d+)*$")
-
 VERSION_COMMENT_PATTERN = re.compile(r"#\s*v?\d+(?:\.\d+)*\s*$")
-
-# Actions that only publish on a floating ref rather than a version tag:
-# pypa/gh-action-pypi-publish's release/v1 is the publisher's documented
-# stable ref (its tags are not guaranteed to move with release/v1).
-#
-# Full-length 40-character commit SHA pins are accepted for any action: a
-# full SHA is the only ref GitHub treats as immutable (a retargeted tag can
-# silently swap what CI runs). Such pins must carry a trailing `# vX.Y.Z`
-# comment so Dependabot can still raise version bumps -- that is how the
-# SonarSource/sonarqube-scan-action pin in sonar.yml is updated (see #366).
-BRANCH_ALLOWLIST = {
-    "pypa/gh-action-pypi-publish@release/v1",
-}
 
 IN_CI = "GITHUB_ACTIONS" in os.environ
 
@@ -107,22 +90,18 @@ def report(level: str, message: str, reference: Reference) -> None:
 
 
 def check_sha_pins(references: list[Reference]) -> int:
-    """Fail when an action is pinned to a short, non-immutable commit SHA."""
+    """Require immutable, full-length commit SHAs for every remote action."""
     failures = 0
-
     for reference in references:
-        if not SHORT_SHA_PATTERN.match(reference.ref):
+        if FULL_SHA_PATTERN.fullmatch(reference.ref):
             continue
-
         report(
             "error",
-            f"{reference.action} is pinned to the short commit {reference.ref}. "
-            "Use the full 40-character SHA (the only immutable ref GitHub "
-            "verifies) or a version tag (for example @v4)",
+            f"{reference.action}@{reference.ref} must use a full "
+            "40-character commit SHA",
             reference,
         )
         failures += 1
-
     return failures
 
 
@@ -172,29 +151,6 @@ def check_consistent_refs(references: list[Reference]) -> int:
     return failures
 
 
-def check_version_tags(references: list[Reference]) -> None:
-    """Warn when an action tracks a branch instead of a version tag."""
-    for reference in references:
-        if VERSION_PATTERN.match(reference.ref):
-            continue
-
-        if FULL_SHA_PATTERN.match(reference.ref) or SHORT_SHA_PATTERN.match(
-            reference.ref
-        ):
-            # SHA pins are dealt with by the SHA checks above.
-            continue
-
-        if f"{reference.action}@{reference.ref}" in BRANCH_ALLOWLIST:
-            continue
-
-        report(
-            "warning",
-            f"{reference.action} tracks the branch {reference.ref}. Prefer a "
-            "version tag where the action publishes one",
-            reference,
-        )
-
-
 def main() -> int:
     """Parse arguments and validate the workflow action references."""
     parser = argparse.ArgumentParser(
@@ -224,7 +180,6 @@ def main() -> int:
 
     references = collect_references(paths)
 
-    check_version_tags(references)
     check_sha_annotations(references)
 
     failures = check_sha_pins(references) + check_consistent_refs(references)
@@ -236,7 +191,7 @@ def main() -> int:
         )
         return 1
 
-    print(f"{len(references)} action references use version tags or full-SHA pins")
+    print(f"{len(references)} action references use full-SHA pins")
 
     return 0
 

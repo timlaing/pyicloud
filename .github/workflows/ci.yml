@@ -1,4 +1,4 @@
-name: Tests
+name: CI
 
 # cspell:words esac
 
@@ -8,9 +8,22 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit to validate
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit to validate
+        required: true
+        type: string
 
 concurrency:
-  group: tests-${{ github.ref }}
+  group: ci-${{ inputs.ref || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -20,7 +33,9 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
+      fail-fast: false
       matrix:
         python-version:
           - "3.10"
@@ -30,12 +45,13 @@ jobs:
           - "3.14"
           - "3.15"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0 # Shallow clones should be disabled for a better relevancy of analysis
           persist-credentials: false
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -90,7 +106,7 @@ jobs:
       # Keep one report per run, from a version supported by the Sonar analyzer.
       - name: Upload coverage report
         if: matrix.python-version == '3.14'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: coverage-report
           path: coverage.xml
@@ -100,12 +116,14 @@ jobs:
   installed-minimum:
     name: Installed runtime minimum dependencies (3.10)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.10"
       - name: Build and check an isolated minimum-runtime installation
@@ -126,16 +144,19 @@ jobs:
   installed-extras:
     name: Installed extras (${{ matrix.extra }}, ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.10", "3.15"]
         extra: [core, cli, mcp, all]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: ${{ matrix.python-version }}
       - name: Build and check extension isolation
@@ -163,3 +184,117 @@ jobs:
           "$SMOKE_ROOT/runtime/bin/pip" check
           cd "$SMOKE_ROOT"
           "$SMOKE_ROOT/runtime/bin/python" -I "$CHECK_SCRIPT" --manifest "$MANIFEST" "${FLAGS[@]}"
+
+  prek:
+    name: Run prek checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Register problem matchers
+        run: |
+          echo "::add-matcher::.github/workflows/matchers/yamllint.json"
+          echo "::add-matcher::.github/workflows/matchers/check-json.json"
+          echo "::add-matcher::.github/workflows/matchers/check-executables-have-shebangs.json"
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install Python dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install -r requirements_all.txt
+
+      - name: Install Prettier dependencies
+        run: npm ci
+
+      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ~/.cache/prek
+          key: prek-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml', 'requirements*.txt') }}
+
+      - name: Run prek
+        run: |
+          source .venv/bin/activate
+          prek run --all-files
+
+  docs:
+    name: Build documentation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: docs/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          pip install -r docs/requirements.txt
+          pip install ".[cli]"
+
+      - name: Build documentation
+        run: mkdocs build --strict
+
+  policy:
+    name: Workflow and dependency policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.14"
+      - run: python -m pip install packaging
+      - run: python scripts/check_action_refs.py .github/workflows
+      - uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2
+      - run: node --test .github/scripts/*.test.cjs
+      - run: python3 -I .github/scripts/test_sonar_workflow.py
+      - run: python3 -I .github/scripts/test_ha_requirements.py
+      - run: python scripts/check/ha_requirements.py
+      - name: Check PR maintainer editing
+        if: github.event_name == 'pull_request'
+        run: python -m scripts.check.edits
+
+  result:
+    name: CI passed
+    needs: [test, installed-minimum, installed-extras, prek, docs, policy]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require all validation jobs to pass
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          results = json.loads(os.environ['RESULTS'])
+          failed = [name for name, job in results.items() if job['result'] != 'success']
+          if failed:
+              raise SystemExit('Validation did not pass: ' + ', '.join(failed))
+          PYTHON

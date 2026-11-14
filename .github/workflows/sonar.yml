@@ -1,22 +1,42 @@
-name: SonarQube
+name: Quality
+run-name: Quality · CI ${{ github.event.workflow_run.id }}
 
 on:
   workflow_run:
-    workflows: [Tests]
+    workflows: [CI]
     types: [completed]
+
+permissions: {}
+
+concurrency:
+  group: quality-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
 
 jobs:
   sonarqube:
-    if: github.event.workflow_run.conclusion == 'success'
+    if: github.event.workflow_run.conclusion == 'success' && contains(fromJSON('["push", "pull_request"]'), github.event.workflow_run.event)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      ref: ${{ steps.validate.outputs.pr-number && format('refs/pull/{0}/head', steps.validate.outputs.pr-number) || 'refs/heads/main' }}
     permissions:
+      statuses: write
       actions: read
       contents: read
       pull-requests: read
     env:
       SONAR_HOST_URL: https://sonarcloud.io
     steps:
+      - name: Mark quality pending
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            await github.rest.repos.createCommitStatus({
+              ...context.repo, sha: context.payload.workflow_run.head_sha,
+              context: "Quality", state: "pending",
+              target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            });
+
       - name: Set scan paths
         run: echo "COVERAGE_DIR=$RUNNER_TEMP/sonar-coverage-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
 
@@ -25,7 +45,7 @@ jobs:
           HAS_SONAR_TOKEN: ${{ secrets.SONAR_TOKEN != '' }}
         run: test "$HAS_SONAR_TOKEN" = true
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -55,7 +75,7 @@ jobs:
           PY
 
       - name: Download coverage report
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: coverage-report
           path: ${{ env.COVERAGE_DIR }}
@@ -149,7 +169,7 @@ jobs:
             -Dsonar.tests=tests
             -Dsonar.python.coverage.reportPaths=${{ env.COVERAGE_DIR }}/coverage.xml
             -Dsonar.working.directory=${{ runner.temp }}/sonar-work-${{ github.run_id }}-${{ github.run_attempt }}
-            -Dsonar.python.version=3.10
+            -Dsonar.python.version=3.10,3.11,3.12,3.13,3.14,3.15
             -Dsonar.scm.revision=${{ steps.validate.outputs.head-sha }}
             -Dsonar.qualitygate.wait=true
 
@@ -167,7 +187,7 @@ jobs:
             -Dsonar.tests=tests
             -Dsonar.python.coverage.reportPaths=${{ env.COVERAGE_DIR }}/coverage.xml
             -Dsonar.working.directory=${{ runner.temp }}/sonar-work-${{ github.run_id }}-${{ github.run_attempt }}
-            -Dsonar.python.version=3.10,3.11,3.12,3.13,3.14
+            -Dsonar.python.version=3.10,3.11,3.12,3.13,3.14,3.15
             -Dsonar.scm.revision=${{ steps.validate.outputs.head-sha }}
             -Dsonar.pullrequest.key=${{ steps.validate.outputs.pr-number }}
             -Dsonar.pullrequest.branch=${{ steps.validate.outputs.head-ref }}
@@ -175,3 +195,93 @@ jobs:
             -Dsonar.pullrequest.provider=github
             -Dsonar.pullrequest.github.repository=${{ github.repository }}
             -Dsonar.qualitygate.wait=true
+
+  codeql:
+    needs: sonarqube
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [actions, python]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          allow-unsafe-pr-checkout: true
+          persist-credentials: false
+      - name: Prepare scan inputs
+        run: |
+          python3 -I - <<'PY'
+          import os
+          from pathlib import Path
+
+          # Do not follow PR-controlled links into runner files or configuration.
+          for root, dirs, files in os.walk('.'):
+              if root == '.':
+                  dirs[:] = [name for name in dirs if name != '.git']
+              for name in dirs + files:
+                  candidate = Path(root) / name
+                  if candidate.is_symlink():
+                      raise SystemExit(f'Symlink is not a scan input: {candidate}')
+          Path('sonar-project.properties').unlink(missing_ok=True)
+          PY
+
+      - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+      - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        with:
+          category: /language:${{ matrix.language }}
+          ref: ${{ needs.sonarqube.outputs.ref }}
+          sha: ${{ github.event.workflow_run.head_sha }}
+          wait-for-processing: true
+
+  review:
+    name: CodeRabbit review
+    needs: [sonarqube, codeql]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            const review = require('./.github/scripts/review.cjs');
+            await review({ github, context, core });
+
+  result:
+    name: Quality result
+    needs: [sonarqube, codeql, review]
+    if: always() && github.event.workflow_run.conclusion == 'success' && contains(fromJSON('["push", "pull_request"]'), github.event.workflow_run.event)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      statuses: write
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          PASSED: ${{ needs.sonarqube.result == 'success' && needs.codeql.result == 'success' && needs.review.result == 'success' }}
+        with:
+          script: |
+            const passed = process.env.PASSED === 'true';
+            await github.rest.repos.createCommitStatus({
+              ...context.repo, sha: context.payload.workflow_run.head_sha,
+              context: "Quality", state: passed ? "success" : "failure",
+              target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            });
+            if (!passed) core.setFailed('SonarQube, CodeQL, and CodeRabbit approval must all pass.');

@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog].
 
 Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semver.org/). Starting with the next release after `2.7.0`, versions will follow [CalVer](https://calver.org/) format (`YYYY.M.PATCH`).
 
+## [Unreleased]
+
+### Changed
+
+- Consolidate CI validation and gate CodeRabbit reviews, Dependabot merges, and
+  package publication on successful checks for the validated revision.
+- Automatically approve CI runs for returning contributors to this fork, enforce
+  compatibility with the latest stable Home Assistant runtime pins, and run
+  daily stale-issue processing.
+- Allow Pydantic 2.14.1 to match the latest stable Home Assistant runtime pin.
+- Run project Python hooks in the requirements-installed development environment,
+  removing duplicated prek dependencies and automated sync commits.
+
 ## [2026.11.2] - 2026-11-13
 
 ### Added
