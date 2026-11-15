@@ -97,6 +97,7 @@ LOGGER: logging.Logger = logging.getLogger(__name__)
 PCS_SLEEP_TIME: int = 5
 PCS_MAX_RETRIES: int = 10
 PCS_ACCESS_ERROR: str = "Unable to request PCS access!"
+PCS_GRANT_TTL: int = 6 * 60 * 60
 
 _HEADERS: dict[str, str] = {
     "User-Agent": (
@@ -348,6 +349,7 @@ class PyiCloudService:
         self.params = _params
 
         self._webservices: dict[str, dict[str, Any]] | None = None
+        self._pcs_granted: dict[str, float] = {}
 
         self._account: AccountService | None = None
         self._calendar: CalendarService | None = None
@@ -389,6 +391,7 @@ class PyiCloudService:
         if pause_2fa is None:
             pause_2fa = self._pause_2fa
 
+        self._pcs_granted.clear()
         login_successful = False
         if self._try_reuse_cached_session(force_refresh, pause_2fa):
             login_successful = True
@@ -505,6 +508,7 @@ class PyiCloudService:
         self._two_factor_delivery_method = "unknown"
         self._two_factor_delivery_notice = None
         self._webservices = None
+        self._pcs_granted.clear()
         self._account = None
         self._calendar = None
         self._contacts = None
@@ -760,6 +764,7 @@ class PyiCloudService:
 
     def _authenticate_with_token(self, require_trust: bool = True) -> None:
         """Authenticate using session token."""
+        self._pcs_granted.clear()
         if not self.session.data.get("session_token"):
             raise PyiCloudFailedLoginException("No session token available")
 
@@ -1343,11 +1348,16 @@ class PyiCloudService:
         )
 
     def _request_pcs_for_service(self, app_name: str) -> None:
-        """Request PCS access for a specific service."""
+        """Reuse successful PCS queries for a service for up to six hours."""
+        granted_at = self._pcs_granted.get(app_name)
+        if granted_at is not None and time.monotonic() - granted_at < PCS_GRANT_TTL:
+            return
+        self._pcs_granted.pop(app_name, None)
         _check_pcs_resp: dict[str, Any] = self._check_pcs_consent()
 
         if not _check_pcs_resp.get("isICDRSDisabled", False):
             LOGGER.debug("Skipping PCS request because Apple reports ICDRS is enabled")
+            self._pcs_granted[app_name] = time.monotonic()
             return
 
         if not _check_pcs_resp.get("isDeviceConsentedForPCS", True):
@@ -1378,6 +1388,7 @@ class PyiCloudService:
 
             if resp["status"] == "success":
                 LOGGER.debug("PCS access was granted")
+                self._pcs_granted[app_name] = time.monotonic()
                 return
 
             if resp["message"] in (
