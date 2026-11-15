@@ -51,6 +51,22 @@ class HomeAssistantPolicyTests(unittest.TestCase):
             1,
         )
 
+    def test_inactive_requirement_is_not_a_conflict(self) -> None:
+        """Ignore an incompatible bound that cannot apply in this environment."""
+        self.assertEqual(
+            POLICY.incompatible("requests>=3; python_version<'0'", "requests==2.33"),
+            [],
+        )
+
+    def test_inactive_pin_cannot_replace_an_applicable_pin(self) -> None:
+        """Ignore inactive pins whether they precede or follow the active pin."""
+        active = "requests==2.33; python_version>='3'"
+        inactive = "requests==1.0; python_version<'0'"
+        for pins in (f"{inactive}\n{active}", f"{active}\n{inactive}"):
+            with self.subTest(pins=pins):
+                self.assertEqual(POLICY.incompatible("requests>=2", pins), [])
+                self.assertEqual(len(POLICY.incompatible("requests>=3", pins)), 1)
+
     def test_core_and_constraint_includes_use_the_same_release(self) -> None:
         """Follow core pins and constraints instead of discarding includes."""
         files = {

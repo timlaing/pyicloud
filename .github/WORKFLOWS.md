@@ -42,7 +42,10 @@ substituted for the tested revision.
 - Keep manual approval for first-time contributors. Automatic approval recognises
   merged PRs to this repository, not contributions only to another repository.
 - Keep `.coderabbit.yaml` automatic reviews disabled and automatic approvals
-  enabled. Install/enable the CodeRabbit app for this fork.
+  enabled. Disable author approval commands and keep the maximum merge risk
+  configured so approval requires a completed assessment of the current commit.
+  The `critical` limit permits every risk category. Install/enable the CodeRabbit
+  app for this fork.
 - Require `CI passed` and the `Quality` commit status on `main`, bound to the
   expected GitHub app. Require PRs and an up-to-date branch, dismiss stale
   approvals, and remove obsolete required-check names. `CI passed` depends on

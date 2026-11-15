@@ -14,10 +14,10 @@ on:
 # and close issues, with close-issue-reason above describing that issue
 # lifecycle. pull-requests: write lets it clear a stale label from a pull
 # request when activity resumes, which still runs even though PR staling is
-# disabled below. There is no checkout, so the token needs no contents
-# access; anything more would fail #370's check that this workflow holds
-# only the permissions it requires.
+# disabled below. actions: write lets the action restore and replace its
+# processing-state cache between daily runs. No checkout needs contents access.
 permissions:
+  actions: write
   issues: write
   pull-requests: write
 

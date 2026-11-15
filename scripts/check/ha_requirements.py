@@ -21,6 +21,8 @@ def incompatible(requirements: str, pins: str) -> list[str]:
         if not line or line.startswith(("#", "-")):
             continue
         requirement = Requirement(line)
+        if requirement.marker and not requirement.marker.evaluate():
+            continue
         for specifier in requirement.specifier:
             if specifier.operator == "==" and "*" not in specifier.version:
                 versions[canonicalize_name(requirement.name)] = specifier.version
@@ -30,6 +32,8 @@ def incompatible(requirements: str, pins: str) -> list[str]:
         if not line or line.startswith("#"):
             continue
         requirement = Requirement(line)
+        if requirement.marker and not requirement.marker.evaluate():
+            continue
         version = versions.get(canonicalize_name(requirement.name))
         if version and (
             requirement.url
