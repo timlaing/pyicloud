@@ -348,6 +348,7 @@ class PyiCloudService:
         self.params = _params
 
         self._webservices: dict[str, dict[str, Any]] | None = None
+        self._pcs_granted: set[str] = set()
 
         self._account: AccountService | None = None
         self._calendar: CalendarService | None = None
@@ -389,6 +390,7 @@ class PyiCloudService:
         if pause_2fa is None:
             pause_2fa = self._pause_2fa
 
+        self._pcs_granted.clear()
         login_successful = False
         if self._try_reuse_cached_session(force_refresh, pause_2fa):
             login_successful = True
@@ -505,6 +507,7 @@ class PyiCloudService:
         self._two_factor_delivery_method = "unknown"
         self._two_factor_delivery_notice = None
         self._webservices = None
+        self._pcs_granted.clear()
         self._account = None
         self._calendar = None
         self._contacts = None
@@ -515,6 +518,7 @@ class PyiCloudService:
         self._mail = None
         self._photos = None
         self._reminders = None
+        self._notes = None
         self._invites = None
         self._requires_mfa = False
         self._two_factor_code_requested = False
@@ -760,6 +764,7 @@ class PyiCloudService:
 
     def _authenticate_with_token(self, require_trust: bool = True) -> None:
         """Authenticate using session token."""
+        self._pcs_granted.clear()
         if not self.session.data.get("session_token"):
             raise PyiCloudFailedLoginException("No session token available")
 
@@ -1344,6 +1349,8 @@ class PyiCloudService:
 
     def _request_pcs_for_service(self, app_name: str) -> None:
         """Request PCS access for a specific service."""
+        if app_name in self._pcs_granted:
+            return
         _check_pcs_resp: dict[str, Any] = self._check_pcs_consent()
 
         if not _check_pcs_resp.get("isICDRSDisabled", False):
@@ -1378,6 +1385,7 @@ class PyiCloudService:
 
             if resp["status"] == "success":
                 LOGGER.debug("PCS access was granted")
+                self._pcs_granted.add(app_name)
                 return
 
             if resp["message"] in (
@@ -1392,6 +1400,35 @@ class PyiCloudService:
 
         LOGGER.error("PCS retries exhausted: %s", resp["message"])
         raise PyiCloudPCSTimeoutException(PCS_ACCESS_ERROR)
+
+    def _pcs_service_for_url(self, url: str) -> str | None:
+        """Identify a granted PCS service using its advertised origin and path.
+
+        CloudKit containers share a host, so matching the host alone would
+        refresh the wrong service. Never match setup/auth or external URLs.
+        """
+        target = urlparse(url)
+        roots: list[tuple[str, str, str]] = [
+            ("ckdatabasews", "photos", "/database/1/com.apple.photos.cloud/"),
+            ("ckdatabasews", "reminders", "/database/1/com.apple.reminders/"),
+            ("ckdatabasews", "notes3", "/database/1/com.apple.notes/"),
+            ("drivews", "iclouddrive", "/"),
+            ("docws", "iclouddrive", "/"),
+        ]
+        for webservice, app_name, route in roots:
+            if app_name not in self._pcs_granted:
+                continue
+            root = (self._webservices or {}).get(webservice, {}).get("url")
+            if not root:
+                continue
+            endpoint = urlparse(root)
+            if (
+                target.scheme == endpoint.scheme
+                and target.netloc == endpoint.netloc
+                and target.path.startswith(endpoint.path.rstrip("/") + route)
+            ):
+                return app_name
+        return None
 
     def validate_2fa_code(self, code: str) -> bool:
         """Verifies a verification code received via Apple's 2FA system (HSA2)."""

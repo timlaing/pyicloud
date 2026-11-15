@@ -191,6 +191,9 @@ class PyiCloudSession(requests.Session):
     def clear_persistence(self, remove_files: bool = True) -> None:
         """Clear persisted session and cookie state."""
 
+        # The session and its owner share the in-memory authentication lifecycle.
+        # pylint: disable=protected-access
+        self.service._pcs_granted.clear()
         try:
             cast(PyiCloudCookieJar, self.cookies).clear()
         except (KeyError, RuntimeError) as exc:
@@ -321,16 +324,59 @@ class PyiCloudSession(requests.Session):
             describe_endpoint(url),
         )
         try:
-            response: Response = super().request(
-                method=method,
-                url=url,
-                **kwargs,
+            response = self._send_with_pcs_refresh(
+                method, url, retry_pcs=False, **kwargs
             )
         except requests.exceptions.RequestException as err:
             self._raise_request_exception(err)
+        return response
+
+    @staticmethod
+    def _can_retry_pcs_read(method: str, url: str, kwargs: dict[str, Any]) -> bool:
+        """Only replay known reads with reusable request bodies, never writes."""
+        if kwargs.get("files") or not isinstance(
+            kwargs.get("data"), (str, bytes, type(None))
+        ):
+            return False
+        if method.upper() in {"GET", "HEAD"}:
+            return True
+        if method.upper() != "POST":
+            return False
+        route = urlsplit(url).path.rstrip("/")
+        return route.endswith((
+            "/records/query",
+            "/records/lookup",
+            "/records/changes",
+            "/zones/list",
+            "/zones/changes",
+            "/database/changes",
+            "/retrieveItemDetailsInFolders",
+        ))
+
+    def _send_with_pcs_refresh(
+        self, method: str, url: str, *, retry_pcs: bool, **kwargs: Any
+    ) -> Response:
+        """Invalidate rejected grants and refresh/retry a normalized read once.
+
+        Raw callers and mutations retain their one-shot transport contract.
+        Failed refreshes and repeated rejections leave the grant uncached.
+        """
+        # PCS consent belongs to the session's owner, not a public service API.
+        # pylint: disable=protected-access
+        response = super().request(method=method, url=url, **kwargs)
         self._update_session_data(response)
         self._save_session_data()
-        return response
+        if response.status_code not in {401, 423}:
+            return response
+        app_name = self.service._pcs_service_for_url(response.url or url)
+        if app_name is None:
+            return response
+        self.service._pcs_granted.discard(app_name)
+        if not retry_pcs or not self._can_retry_pcs_read(method, url, kwargs):
+            return response
+        response.close()
+        self.service._request_pcs_for_service(app_name)
+        return self._send_with_pcs_refresh(method, url, retry_pcs=False, **kwargs)
 
     def _request(
         self,
@@ -346,14 +392,9 @@ class PyiCloudSession(requests.Session):
         )
 
         try:
-            response: Response = super().request(
-                method=method,
-                url=url,
-                **kwargs,
+            response = self._send_with_pcs_refresh(
+                method, url, retry_pcs=True, **kwargs
             )
-
-            self._update_session_data(response)
-            self._save_session_data()
 
             status_code: int = int(response.status_code)
 

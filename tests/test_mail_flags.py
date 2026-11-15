@@ -10,6 +10,7 @@ import pytest
 from requests import ReadTimeout, Response, Session
 from typer.testing import CliRunner, Result
 
+from pyicloud import PyiCloudService
 from pyicloud.cli.app import app
 from pyicloud.cli.context import CLIState
 from pyicloud.exceptions import PyiCloudConnectionException
@@ -303,12 +304,15 @@ def test_http_failures_are_uncertain_and_not_replayed(
 
 def test_real_session_does_not_normalize_or_replay_write_auth_errors(
     case: FlagCase,
+    pyicloud_service: PyiCloudService,
 ) -> None:
     """Use the real raw-session pipeline while intercepting the actual HTTP sink."""
     session = object.__new__(PyiCloudSession)
     Session.__init__(session)
     case.response.status_code = 401
+    case.response.url = "https://mail.example.test/message/update"
     with (
+        patch.object(session, "_service", pyicloud_service, create=True),
         patch.object(session, "_logger", MagicMock(), create=True),
         patch.object(
             MailService, "session", new_callable=PropertyMock, return_value=session
