@@ -106,6 +106,7 @@ class CloudKitNotesClient:
             bool_param_style="lower",
             redact_urls=True,
             debug_hook=self._dump_http_debug,
+            pcs_app_name="notes3",
         )
         self._validation_extra = validation_extra
         LOGGER.info("CloudKitNotesClient initialized.")

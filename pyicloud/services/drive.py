@@ -17,7 +17,7 @@ from requests import Response
 from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
 from pyicloud.exceptions import PyiCloudAPIResponseException, TokenException
 from pyicloud.services.base import BaseService
-from pyicloud.session import PyiCloudSession
+from pyicloud.session import PyiCloudSession, pcs_request_options
 
 LOGGER: logging.Logger = logging.getLogger(__name__)
 
@@ -77,6 +77,7 @@ class DriveService(BaseService):
             params=self.params,
             json=payload,
             allow_redirects=False,
+            **pcs_request_options(self.session, "iclouddrive"),
         )
         self._raise_if_error(request)
         return cast(dict[str, Any], request.json()[0])
@@ -100,6 +101,7 @@ class DriveService(BaseService):
         response: Response = self.session.get(
             self._document_root + path,
             params=file_params,
+            **pcs_request_options(self.session, "iclouddrive"),
             **(
                 {"allow_redirects": kwargs["allow_redirects"]}
                 if "allow_redirects" in kwargs
@@ -124,6 +126,7 @@ class DriveService(BaseService):
         request: Response = self.session.get(
             self.service_root + "/retrieveAppLibraries",
             params=self.params,
+            **pcs_request_options(self.session, "iclouddrive"),
         )
         self._raise_if_error(request)
         return request.json()["items"]

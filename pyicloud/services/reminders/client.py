@@ -64,6 +64,7 @@ class CloudKitRemindersClient:
             validation_extra=validation_extra,
             bool_param_style="lower",
             handle_rate_limits=False,
+            pcs_app_name="reminders",
         )
         self._validation_extra = validation_extra
 

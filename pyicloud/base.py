@@ -97,6 +97,7 @@ LOGGER: logging.Logger = logging.getLogger(__name__)
 PCS_SLEEP_TIME: int = 5
 PCS_MAX_RETRIES: int = 10
 PCS_ACCESS_ERROR: str = "Unable to request PCS access!"
+PCS_GRANT_TTL: int = 6 * 60 * 60
 
 _HEADERS: dict[str, str] = {
     "User-Agent": (
@@ -348,7 +349,7 @@ class PyiCloudService:
         self.params = _params
 
         self._webservices: dict[str, dict[str, Any]] | None = None
-        self._pcs_granted: set[str] = set()
+        self._pcs_granted: dict[str, float] = {}
 
         self._account: AccountService | None = None
         self._calendar: CalendarService | None = None
@@ -1349,8 +1350,10 @@ class PyiCloudService:
 
     def _request_pcs_for_service(self, app_name: str) -> None:
         """Request PCS access for a specific service."""
-        if app_name in self._pcs_granted:
+        granted_at = self._pcs_granted.get(app_name)
+        if granted_at is not None and time.monotonic() - granted_at < PCS_GRANT_TTL:
             return
+        self._pcs_granted.pop(app_name, None)
         _check_pcs_resp: dict[str, Any] = self._check_pcs_consent()
 
         if not _check_pcs_resp.get("isICDRSDisabled", False):
@@ -1385,7 +1388,7 @@ class PyiCloudService:
 
             if resp["status"] == "success":
                 LOGGER.debug("PCS access was granted")
-                self._pcs_granted.add(app_name)
+                self._pcs_granted[app_name] = time.monotonic()
                 return
 
             if resp["message"] in (
@@ -1400,35 +1403,6 @@ class PyiCloudService:
 
         LOGGER.error("PCS retries exhausted: %s", resp["message"])
         raise PyiCloudPCSTimeoutException(PCS_ACCESS_ERROR)
-
-    def _pcs_service_for_url(self, url: str) -> str | None:
-        """Identify a granted PCS service using its advertised origin and path.
-
-        CloudKit containers share a host, so matching the host alone would
-        refresh the wrong service. Never match setup/auth or external URLs.
-        """
-        target = urlparse(url)
-        roots: list[tuple[str, str, str]] = [
-            ("ckdatabasews", "photos", "/database/1/com.apple.photos.cloud/"),
-            ("ckdatabasews", "reminders", "/database/1/com.apple.reminders/"),
-            ("ckdatabasews", "notes3", "/database/1/com.apple.notes/"),
-            ("drivews", "iclouddrive", "/"),
-            ("docws", "iclouddrive", "/"),
-        ]
-        for webservice, app_name, route in roots:
-            if app_name not in self._pcs_granted:
-                continue
-            root = (self._webservices or {}).get(webservice, {}).get("url")
-            if not root:
-                continue
-            endpoint = urlparse(root)
-            if (
-                target.scheme == endpoint.scheme
-                and target.netloc == endpoint.netloc
-                and target.path.startswith(endpoint.path.rstrip("/") + route)
-            ):
-                return app_name
-        return None
 
     def validate_2fa_code(self, code: str) -> bool:
         """Verifies a verification code received via Apple's 2FA system (HSA2)."""

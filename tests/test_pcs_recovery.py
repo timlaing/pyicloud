@@ -3,19 +3,26 @@
 # pylint: disable=protected-access
 
 from collections.abc import Iterator
+import time
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
-from requests import Response
+from requests import Request, Response
 
 from pyicloud import PyiCloudService
+from pyicloud.base import PCS_GRANT_TTL
+from pyicloud.common.cloudkit import CKQueryObject, CKZoneIDReq
 from pyicloud.exceptions import (
     PyiCloudAPIResponseException,
     PyiCloudAuthRequiredException,
     PyiCloudFailedLoginException,
 )
-from pyicloud.session import PyiCloudSession
+from pyicloud.services.drive import DriveService
+from pyicloud.services.notes.client import CloudKitNotesClient
+from pyicloud.services.photos.client import PhotosCloudKitClient
+from pyicloud.services.reminders.client import CloudKitRemindersClient
+from pyicloud.session import PyiCloudSession, pcs_request_options
 
 CK_ROOT = "https://ck.example.test"
 DRIVE_ROOT = "https://drive.example.test"
@@ -24,6 +31,10 @@ REMINDERS_QUERY = (
     f"{CK_ROOT}/database/1/com.apple.reminders/production/private/records/query"
 )
 APPS = ("photos", "reminders", "notes3", "iclouddrive")
+
+
+def _grant(service: PyiCloudService, *apps: str) -> None:
+    service._pcs_granted.update(dict.fromkeys(apps, time.monotonic()))
 
 
 @pytest.fixture(name="pcs_service")
@@ -64,7 +75,7 @@ def test_successful_grants_are_cached_per_app(pcs_service: PyiCloudService) -> N
     for app in APPS:
         pcs_service._request_pcs_for_service(app)
         pcs_service._request_pcs_for_service(app)
-    assert pcs_service._pcs_granted == set(APPS)
+    assert set(pcs_service._pcs_granted) == set(APPS)
     assert isinstance(pcs_service._check_pcs_consent, MagicMock)
     assert isinstance(pcs_service._send_pcs_request, MagicMock)
     assert pcs_service._check_pcs_consent.call_count == len(APPS)
@@ -99,7 +110,7 @@ def test_failed_grants_can_be_requested_again(
         pcs_service._request_pcs_for_service("reminders")
     assert not pcs_service._pcs_granted
     pcs_service._request_pcs_for_service("reminders")
-    assert pcs_service._pcs_granted == {"reminders"}
+    assert set(pcs_service._pcs_granted) == {"reminders"}
 
 
 def test_non_adp_skip_is_not_cached(pcs_service: PyiCloudService) -> None:
@@ -108,13 +119,13 @@ def test_non_adp_skip_is_not_cached(pcs_service: PyiCloudService) -> None:
         pcs_service._request_pcs_for_service("photos")
     assert not pcs_service._pcs_granted
     pcs_service._request_pcs_for_service("photos")
-    assert pcs_service._pcs_granted == {"photos"}
+    assert set(pcs_service._pcs_granted) == {"photos"}
 
 
 @pytest.mark.parametrize("reset", ["state", "authenticate", "token", "persistence"])
 def test_session_resets_clear_grants(pcs_service: PyiCloudService, reset: str) -> None:
     """Auth and persistence resets cannot leave stale in-memory PCS grants."""
-    pcs_service._pcs_granted.update(APPS)
+    _grant(pcs_service, *APPS)
     if reset == "state":
         pcs_service._clear_authenticated_state()
     elif reset == "authenticate":
@@ -175,7 +186,7 @@ def test_rejected_reads_refresh_only_the_matching_app_once(
     options: dict[str, Any],
 ) -> None:
     """Refresh expired cookies and resend the identical read with all options."""
-    pcs_service._pcs_granted.update(APPS)
+    _grant(pcs_service, *APPS)
     rejected = _response(status, url)
     if not json_response:
         rejected.headers.clear()
@@ -185,7 +196,10 @@ def test_rejected_reads_refresh_only_the_matching_app_once(
         patch("requests.Session.request", side_effect=[rejected, success]) as send,
         patch.object(rejected, "close") as close,
     ):
-        assert pcs_service.session.request(method, url, **options) is success
+        assert (
+            pcs_service.session.request(method, url, pcs_app_name=app, **options)
+            is success
+        )
     assert send.call_count == 2
     assert send.call_args_list[0] == send.call_args_list[1]
     close.assert_called_once_with()
@@ -193,33 +207,33 @@ def test_rejected_reads_refresh_only_the_matching_app_once(
     pcs_service._send_pcs_request.assert_called_once_with(
         app, derived_from_user_action=True
     )
-    assert pcs_service._pcs_granted == set(APPS)
+    assert set(pcs_service._pcs_granted) == set(APPS)
 
 
 def test_second_rejection_propagates_and_invalidates_grant(
     pcs_service: PyiCloudService,
 ) -> None:
     """No retry loop; a later property access can request a new grant."""
-    pcs_service._pcs_granted.add("reminders")
+    _grant(pcs_service, "reminders")
     with (
         patch(
             "requests.Session.request", side_effect=[_response(401), _response(423)]
         ) as send,
         pytest.raises(PyiCloudAPIResponseException) as error,
     ):
-        pcs_service.session.post(REMINDERS_QUERY, json={})
+        pcs_service.session.post(REMINDERS_QUERY, json={}, pcs_app_name="reminders")
     assert error.value.code == 423
     assert send.call_count == 2
     assert not pcs_service._pcs_granted
     pcs_service._request_pcs_for_service("reminders")
-    assert pcs_service._pcs_granted == {"reminders"}
+    assert set(pcs_service._pcs_granted) == {"reminders"}
 
 
 def test_refresh_failure_propagates_without_resending_read(
     pcs_service: PyiCloudService,
 ) -> None:
     """Failed renewal does not mark the service granted or replay the request."""
-    pcs_service._pcs_granted.add("reminders")
+    _grant(pcs_service, "reminders")
     with (
         patch("requests.Session.request", return_value=_response(401)) as send,
         patch.object(
@@ -229,9 +243,17 @@ def test_refresh_failure_propagates_without_resending_read(
         ),
         pytest.raises(PyiCloudAPIResponseException, match="PCS refresh failed"),
     ):
-        pcs_service.session.post(REMINDERS_QUERY, json={})
+        pcs_service.session.post(REMINDERS_QUERY, json={}, pcs_app_name="reminders")
     send.assert_called_once()
     assert not pcs_service._pcs_granted
+    # A saved service client can recover on its next read without property access.
+    success = _response(200)
+    with patch("requests.Session.request", side_effect=[_response(401), success]):
+        assert (
+            pcs_service.session.post(REMINDERS_QUERY, json={}, pcs_app_name="reminders")
+            is success
+        )
+    assert set(pcs_service._pcs_granted) == {"reminders"}
 
 
 @pytest.mark.parametrize(
@@ -248,13 +270,13 @@ def test_writes_and_non_reusable_bodies_are_never_replayed(
     pcs_service: PyiCloudService, method: str, route: str, options: dict[str, Any]
 ) -> None:
     """Invalidate rejected access without silently replaying unsafe requests."""
-    pcs_service._pcs_granted.add("reminders")
+    _grant(pcs_service, "reminders")
     url = REMINDERS_QUERY.removesuffix("/records/query") + route
     with (
         patch("requests.Session.request", return_value=_response(401, url)) as send,
         pytest.raises(PyiCloudAPIResponseException),
     ):
-        pcs_service.session.request(method, url, **options)
+        pcs_service.session.request(method, url, pcs_app_name="reminders", **options)
     send.assert_called_once()
     assert not pcs_service._pcs_granted
     assert isinstance(pcs_service._send_pcs_request, MagicMock)
@@ -263,12 +285,12 @@ def test_writes_and_non_reusable_bodies_are_never_replayed(
 
 def test_raw_requests_remain_one_shot(pcs_service: PyiCloudService) -> None:
     """Raw callers receive the original rejection without a refresh or retry."""
-    pcs_service._pcs_granted.add("reminders")
+    _grant(pcs_service, "reminders")
     rejected = _response(401)
     with patch("requests.Session.request", return_value=rejected) as send:
         assert pcs_service.session.request_raw("POST", REMINDERS_QUERY) is rejected
     send.assert_called_once()
-    assert not pcs_service._pcs_granted
+    assert set(pcs_service._pcs_granted) == {"reminders"}
     assert isinstance(pcs_service._send_pcs_request, MagicMock)
     pcs_service._send_pcs_request.assert_not_called()
 
@@ -289,14 +311,14 @@ def test_unrelated_endpoints_do_not_refresh(
     pcs_service: PyiCloudService, url: str
 ) -> None:
     """Auth failures on other services and origins cannot trigger PCS prompts."""
-    pcs_service._pcs_granted.update(APPS)
+    _grant(pcs_service, *APPS)
     with (
         patch("requests.Session.request", return_value=_response(401, url)) as send,
         pytest.raises(PyiCloudAPIResponseException),
     ):
         pcs_service.session.post(url)
     send.assert_called_once()
-    assert pcs_service._pcs_granted == set(APPS)
+    assert set(pcs_service._pcs_granted) == set(APPS)
 
 
 @pytest.mark.parametrize("status", [403, 409, 429, 450, 500])
@@ -304,7 +326,7 @@ def test_other_failures_do_not_refresh(
     pcs_service: PyiCloudService, status: int
 ) -> None:
     """Throttling, account locks and 2FA challenges retain existing handling."""
-    pcs_service._pcs_granted.add("reminders")
+    _grant(pcs_service, "reminders")
     with patch("requests.Session.request", return_value=_response(status)) as send:
         exception = (
             PyiCloudAuthRequiredException
@@ -312,23 +334,218 @@ def test_other_failures_do_not_refresh(
             else PyiCloudAPIResponseException
         )
         with pytest.raises(exception):
-            pcs_service.session.post(REMINDERS_QUERY)
+            pcs_service.session.post(REMINDERS_QUERY, pcs_app_name="reminders")
     send.assert_called_once()
-    assert pcs_service._pcs_granted == {"reminders"}
+    assert set(pcs_service._pcs_granted) == {"reminders"}
 
 
 def test_missing_advertised_root_does_not_refresh(pcs_service: PyiCloudService) -> None:
-    """A cached grant does not authorize arbitrary hosts if its endpoint is absent."""
-    pcs_service._pcs_granted.update(APPS)
+    """Untagged requests do not guess a service from its URL or metadata."""
+    _grant(pcs_service, *APPS)
     pcs_service._webservices = None
-    assert pcs_service._pcs_service_for_url(REMINDERS_QUERY) is None
+    with (
+        patch("requests.Session.request", return_value=_response(401)) as send,
+        pytest.raises(PyiCloudAPIResponseException),
+    ):
+        pcs_service.session.post(REMINDERS_QUERY)
+    send.assert_called_once()
 
 
 def test_url_without_grant_does_not_refresh(pcs_service: PyiCloudService) -> None:
-    """Ordinary unauthenticated failures do not cause automatic PCS prompts."""
-    assert pcs_service._pcs_service_for_url(REMINDERS_QUERY) is None
+    """An untagged auth failure does not cause automatic PCS prompts."""
+    with (
+        patch("requests.Session.request", return_value=_response(401)),
+        pytest.raises(PyiCloudAPIResponseException),
+    ):
+        pcs_service.session.post(REMINDERS_QUERY)
+    assert isinstance(pcs_service._send_pcs_request, MagicMock)
+    pcs_service._send_pcs_request.assert_not_called()
 
 
 def test_head_is_a_reusable_read() -> None:
     """HEAD requests can recover without replaying an operation or stream body."""
     assert PyiCloudSession._can_retry_pcs_read("head", REMINDERS_QUERY, {})
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [None, [], "invalid", {}, {"url": 42}, {"url": ""}, {"url": "https://[invalid"}],
+)
+def test_malformed_unrelated_metadata_does_not_block_drive_recovery(
+    pcs_service: PyiCloudService, entry: Any
+) -> None:
+    """Invalid CloudKit advertisements cannot mask a rejected Drive request."""
+    _grant(pcs_service, *APPS)
+    assert pcs_service._webservices is not None
+    pcs_service._webservices["ckdatabasews"] = entry
+    url = f"{DRIVE_ROOT}/retrieveAppLibraries"
+    with patch(
+        "requests.Session.request",
+        side_effect=[_response(401, url), _response(200, url)],
+    ) as send:
+        assert (
+            pcs_service.session.get(url, pcs_app_name="iclouddrive").status_code == 200
+        )
+    assert send.call_count == 2
+    assert set(pcs_service._pcs_granted) == set(APPS)
+
+
+@pytest.mark.parametrize("advertised", [None, [], "invalid"])
+def test_malformed_service_map_preserves_original_error(
+    pcs_service: PyiCloudService, advertised: Any
+) -> None:
+    """Unexpected metadata must not replace the original auth exception."""
+    _grant(pcs_service, *APPS)
+    pcs_service._webservices = advertised
+    with (
+        patch("requests.Session.request", return_value=_response(401)),
+        pytest.raises(PyiCloudAPIResponseException) as error,
+    ):
+        pcs_service.session.post(REMINDERS_QUERY)
+    assert error.value.code == 401
+    assert set(pcs_service._pcs_granted) == set(APPS)
+
+
+@pytest.mark.parametrize("shape", ["mapping", "pairs", "iterator"])
+def test_one_shot_query_parameters_are_not_replayed(
+    pcs_service: PyiCloudService, shape: str
+) -> None:
+    """Preparation consumes iterators, so retrying them would change the URL."""
+    _grant(pcs_service, "iclouddrive")
+    url = f"{DOC_ROOT}/ws/com.apple.CloudDocs/download/by_id"
+    params: Any
+    if shape == "mapping":
+        params = {"document_id": iter(["file-a"])}
+    elif shape == "pairs":
+        params = [("document_id", iter(["file-a"]))]
+    else:
+        params = iter([("document_id", "file-a")])
+    prepared_urls: list[str | None] = []
+
+    def prepare_response(*_args: Any, **kwargs: Any) -> Response:
+        prepared = Request(
+            kwargs["method"], kwargs["url"], params=kwargs["params"]
+        ).prepare()
+        prepared_urls.append(prepared.url)
+        return _response(401, prepared.url or url)
+
+    with (
+        patch("requests.Session.request", side_effect=prepare_response) as send,
+        pytest.raises(PyiCloudAPIResponseException) as error,
+    ):
+        pcs_service.session.get(url, params=params, pcs_app_name="iclouddrive")
+    assert error.value.code == 401
+    send.assert_called_once()
+    assert prepared_urls == [f"{url}?document_id=file-a"]
+    assert not pcs_service._pcs_granted
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        None,
+        "document_id=file-a",
+        b"document_id=file-a",
+        {"document_id": ["file-a"]},
+        [("document_id", ("file-a",))],
+    ],
+)
+def test_reusable_query_parameters_remain_retryable(params: Any) -> None:
+    """Scalar, encoded, and reusable multi-value params retain read recovery."""
+    assert PyiCloudSession._can_retry_pcs_read(
+        "GET", REMINDERS_QUERY, {"params": params}
+    )
+
+
+@pytest.mark.parametrize(
+    "elapsed", [0, PCS_GRANT_TTL - 1, PCS_GRANT_TTL, PCS_GRANT_TTL + 1]
+)
+def test_grants_expire_after_six_hours(
+    pcs_service: PyiCloudService, elapsed: int
+) -> None:
+    """The monotonic TTL includes its exact boundary and accepts a zero timestamp."""
+    pcs_service._pcs_granted["reminders"] = 0.0
+    with patch("pyicloud.base.time.monotonic", return_value=float(elapsed)):
+        pcs_service._request_pcs_for_service("reminders")
+    assert isinstance(pcs_service._send_pcs_request, MagicMock)
+    assert pcs_service._send_pcs_request.call_count == int(elapsed >= PCS_GRANT_TTL)
+    assert pcs_service._pcs_granted["reminders"] == (
+        float(elapsed) if elapsed >= PCS_GRANT_TTL else 0.0
+    )
+
+
+def test_expired_grant_is_removed_when_renewal_fails(
+    pcs_service: PyiCloudService,
+) -> None:
+    """A failed TTL renewal cannot leave a stale timestamp suppressing recovery."""
+    pcs_service._pcs_granted["photos"] = 0.0
+    with (
+        patch("pyicloud.base.time.monotonic", return_value=float(PCS_GRANT_TTL)),
+        patch.object(
+            pcs_service,
+            "_send_pcs_request",
+            side_effect=PyiCloudAPIResponseException("PCS failed"),
+        ),
+        pytest.raises(PyiCloudAPIResponseException, match="PCS failed"),
+    ):
+        pcs_service._request_pcs_for_service("photos")
+    assert not pcs_service._pcs_granted
+    pcs_service._request_pcs_for_service("photos")
+    assert set(pcs_service._pcs_granted) == {"photos"}
+
+
+@pytest.mark.parametrize("app", APPS)
+def test_service_clients_supply_their_own_pcs_context(
+    pcs_service: PyiCloudService, app: str
+) -> None:
+    """Clients own their URLs; PCS renewal never reconstructs or matches them."""
+    _grant(pcs_service, *APPS)
+    pcs_service._webservices = None
+    success = _response(200)
+    success._content = b'{"zones": [], "items": [], "records": []}'
+    with patch(
+        "requests.Session.request", side_effect=[_response(401), success]
+    ) as send:
+        if app == "photos":
+            client = PhotosCloudKitClient(
+                base_url=CK_ROOT, session=pcs_service.session, base_params={}
+            )
+            assert client.zones_list().zones == []
+        elif app == "reminders":
+            assert (
+                CloudKitRemindersClient(CK_ROOT, pcs_service.session, {})
+                .zones_list()
+                .zones
+                == []
+            )
+        elif app == "notes3":
+            notes = CloudKitNotesClient(CK_ROOT, pcs_service.session, {})
+            assert (
+                notes.query(
+                    query=CKQueryObject(recordType="Note"),
+                    zone_id=CKZoneIDReq(zoneName="Notes"),
+                ).records
+                == []
+            )
+        else:
+            drive = DriveService(DRIVE_ROOT, DOC_ROOT, pcs_service.session, {})
+            assert drive.get_app_data() == []
+    assert send.call_count == 2
+    assert isinstance(pcs_service._send_pcs_request, MagicMock)
+    pcs_service._send_pcs_request.assert_called_once_with(
+        app, derived_from_user_action=True
+    )
+    assert all("pcs_app_name" not in call.kwargs for call in send.call_args_list)
+
+
+def test_injected_sessions_do_not_receive_pcs_extension_kwargs() -> None:
+    """Keep compatibility with plain requests-compatible test/application transports."""
+    assert not pcs_request_options(object(), "reminders")
+
+
+@pytest.mark.parametrize(
+    "route", ["/changes/zone", "/changes/database", "/internal/records/query/batch"]
+)
+def test_existing_cloudkit_read_routes_are_retryable(route: str) -> None:
+    """Use the existing read operation routes, including sync and batch counts."""
+    assert PyiCloudSession._can_retry_pcs_read("POST", CK_ROOT + route, {"json": {}})

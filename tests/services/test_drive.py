@@ -239,6 +239,7 @@ def test_get_node_data(pyicloud_service_working: PyiCloudService) -> None:
             params=drive.params,
             json=[{"drivewsid": "test_id", "partialData": False}],
             allow_redirects=False,
+            pcs_app_name="iclouddrive",
         )
 
 
@@ -259,6 +260,7 @@ def test_get_file(pyicloud_service_working: PyiCloudService) -> None:
         mock_get.assert_any_call(
             drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/download/by_id",
             params={**drive.params, "document_id": "file_id"},
+            pcs_app_name="iclouddrive",
         )
         mock_get.assert_any_call("https://example.com/file", params=drive.params)
 

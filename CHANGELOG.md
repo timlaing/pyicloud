@@ -10,10 +10,11 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
-- Reuse successful PCS grants for Photos, Drive, Notes, and Reminders instead of
+- Cache successful PCS grants for six hours for Photos, Drive, Notes, and Reminders instead of
   repeatedly prompting for Advanced Data Protection consent during polling.
   Clear grants on authentication/session reset and refresh rejected access once
-  for reads; never automatically replay writes or raw requests.
+  for reads using the requesting service's context; never automatically replay
+  writes, raw requests, or requests with one-shot bodies or query parameters.
 
 ## [2026.11.2] - 2026-11-13
 

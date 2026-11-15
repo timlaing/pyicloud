@@ -16,7 +16,7 @@ from requests.exceptions import RequestException
 
 from pyicloud.const import ERROR_ZONE_NOT_FOUND
 from pyicloud.exceptions import PyiCloudAPIResponseException, PyiCloudException
-from pyicloud.session import PyiCloudSession
+from pyicloud.session import PyiCloudSession, pcs_request_options
 
 from .base import CloudKitExtraMode, resolve_cloudkit_validation_extra
 from .errors import parse_retry_after
@@ -48,6 +48,7 @@ LOGGER = logging.getLogger(__name__)
 
 class _PostOptions(TypedDict, total=False):
     allow_redirects: bool
+    pcs_app_name: str
 
 
 _ResponseModelT = TypeVar(
@@ -137,6 +138,7 @@ class _CloudKitHTTP:
         redact_urls: bool = False,
         debug_hook: CloudKitDebugHook | None = None,
         handle_rate_limits: bool = True,
+        pcs_app_name: str | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._session = session
@@ -147,6 +149,7 @@ class _CloudKitHTTP:
         self._redact_urls = redact_urls
         self._debug_hook = debug_hook
         self._handle_rate_limits = handle_rate_limits
+        self._pcs_app_name = pcs_app_name
 
     @property
     def timeout(self) -> tuple[float, float]:
@@ -202,6 +205,10 @@ class _CloudKitHTTP:
         display_url = self._display_url(url) if self._redact_urls else path
         LOGGER.debug("CloudKit POST %s", display_url)
         options: _PostOptions = {} if allow_redirects else {"allow_redirects": False}
+        if self._pcs_app_name is not None and (
+            pcs_options := pcs_request_options(self._session, self._pcs_app_name)
+        ):
+            options["pcs_app_name"] = pcs_options["pcs_app_name"]
         try:
             if require_no_retry:
                 request, settings = self._prepare_mutation_request(
@@ -604,6 +611,7 @@ class CloudKitContainerClient:
         redact_urls: bool = False,
         debug_hook: CloudKitDebugHook | None = None,
         handle_rate_limits: bool = True,
+        pcs_app_name: str | None = None,
     ) -> None:
         self._http = _CloudKitHTTP(
             base_url,
@@ -614,6 +622,7 @@ class CloudKitContainerClient:
             redact_urls=redact_urls,
             debug_hook=debug_hook,
             handle_rate_limits=handle_rate_limits,
+            pcs_app_name=pcs_app_name,
         )
         self._validation_extra = validation_extra
 
