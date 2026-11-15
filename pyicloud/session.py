@@ -205,9 +205,7 @@ class PyiCloudSession(requests.Session):
     def clear_persistence(self, remove_files: bool = True) -> None:
         """Clear persisted session and cookie state."""
 
-        # The session and its owner share the in-memory authentication lifecycle.
-        # pylint: disable=protected-access
-        self.service._pcs_granted.clear()
+        self.service.invalidate_pcs_grants()
         try:
             cast(PyiCloudCookieJar, self.cookies).clear()
         except (KeyError, RuntimeError) as exc:
@@ -417,7 +415,7 @@ class PyiCloudSession(requests.Session):
             return response
         if pcs_app_name is None:
             return response
-        self.service._pcs_granted.pop(pcs_app_name, None)
+        self.service.invalidate_pcs_grants(pcs_app_name)
         if not retry_pcs or not self._can_retry_pcs_read(method, url, kwargs):
             return response
         response.close()

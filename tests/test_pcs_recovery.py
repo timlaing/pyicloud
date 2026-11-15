@@ -82,6 +82,21 @@ def test_successful_grants_are_cached_per_app(pcs_service: PyiCloudService) -> N
     assert pcs_service._send_pcs_request.call_count == len(APPS)
 
 
+@pytest.mark.parametrize("app_name", [None, "reminders", "unknown"])
+def test_owner_invalidation_does_not_prompt_or_revoke_other_grants(
+    pcs_service: PyiCloudService, app_name: str | None
+) -> None:
+    """Shared callers can invalidate one grant or reset all without accessing state."""
+    for app in APPS:
+        pcs_service._request_pcs_for_service(app)
+    assert isinstance(pcs_service._send_pcs_request, MagicMock)
+    pcs_service._send_pcs_request.reset_mock()
+    pcs_service.invalidate_pcs_grants(app_name)
+    expected = set() if app_name is None else set(APPS) - {app_name}
+    assert set(pcs_service._pcs_granted) == expected
+    pcs_service._send_pcs_request.assert_not_called()
+
+
 @pytest.mark.parametrize("property_name", ["photos", "reminders", "notes", "drive"])
 def test_cached_properties_do_not_request_pcs_again(
     pcs_service: PyiCloudService, property_name: str

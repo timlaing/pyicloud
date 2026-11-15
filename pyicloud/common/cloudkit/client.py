@@ -330,7 +330,7 @@ class _CloudKitHTTP:
                 and response.status_code in {401, 423}
             ):
                 # Invalidate only: one-shot mutations must never refresh or replay.
-                self._session.service._pcs_granted.pop(self._pcs_app_name, None)  # pylint: disable=protected-access
+                self._session.service.invalidate_pcs_grants(self._pcs_app_name)
             store_cookies = cast(
                 Callable[[Any, Any, Any], None], extract_cookies_to_jar
             )
