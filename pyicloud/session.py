@@ -1,12 +1,11 @@
 """Pyicloud Session handling"""
 
-from collections.abc import Iterable, Iterator, Mapping
 from json import JSONDecodeError, dump, load
 import logging
 import os
 from os import path
 from re import match
-from typing import TYPE_CHECKING, Any, NoReturn, TypedDict, cast
+from typing import TYPE_CHECKING, Any, NoReturn, cast
 from urllib.parse import urlsplit
 
 import requests
@@ -85,19 +84,6 @@ def describe_endpoint(url: str | bytes) -> str:
     host: str = parts.netloc.split("@")[-1]
     route: str = "/".join(segments)
     return f"{host}{route}" if host else route
-
-
-class PCSRequestOptions(TypedDict, total=False):
-    """Optional PCS context supported by the real iCloud session."""
-
-    pcs_app_name: str
-
-
-def pcs_request_options(session: object, app_name: str) -> PCSRequestOptions:
-    """Tag service requests without changing injected requests-compatible clients."""
-    if issubclass(type(session), PyiCloudSession):
-        return {"pcs_app_name": app_name}
-    return {}
 
 
 class PyiCloudSession(requests.Session):
@@ -205,7 +191,6 @@ class PyiCloudSession(requests.Session):
     def clear_persistence(self, remove_files: bool = True) -> None:
         """Clear persisted session and cookie state."""
 
-        self.service.invalidate_pcs_grants()
         try:
             cast(PyiCloudCookieJar, self.cookies).clear()
         except (KeyError, RuntimeError) as exc:
@@ -261,8 +246,6 @@ class PyiCloudSession(requests.Session):
         verify: Any = None,
         cert: Any = None,
         json: Any = None,
-        *,
-        pcs_app_name: str | None = None,
     ) -> Response:
         """Dispatch a request through the normalized session request pipeline."""
         return self._request(
@@ -282,7 +265,6 @@ class PyiCloudSession(requests.Session):
             verify=verify,
             cert=cert,
             json=json,
-            pcs_app_name=pcs_app_name,
         )
 
     def request_raw(
@@ -325,16 +307,6 @@ class PyiCloudSession(requests.Session):
             json=json,
         )
 
-    def get(self, url: str | bytes, params: Any = None, **kwargs: Any) -> Response:
-        """GET with optional PCS context, retaining requests-compatible options."""
-        return super().get(url, params=params, **kwargs)
-
-    def post(
-        self, url: str | bytes, data: Any = None, json: Any = None, **kwargs: Any
-    ) -> Response:
-        """POST with optional PCS context, retaining requests-compatible options."""
-        return super().post(url, data=data, json=json, **kwargs)
-
     def _request_raw(
         self,
         method: str,
@@ -349,80 +321,16 @@ class PyiCloudSession(requests.Session):
             describe_endpoint(url),
         )
         try:
-            response = self._send_with_pcs_refresh(
-                method, url, retry_pcs=False, **kwargs
+            response: Response = super().request(
+                method=method,
+                url=url,
+                **kwargs,
             )
         except requests.exceptions.RequestException as err:
             self._raise_request_exception(err)
-        return response
-
-    @staticmethod
-    def _has_reusable_params(params: Any) -> bool:
-        """Reject query iterators without consuming them to inspect retry safety."""
-        values: Iterable[Any]
-        if isinstance(params, Mapping):
-            values = params.values()
-        elif isinstance(params, (list, tuple)):
-            values = [value for _, value in params]
-        else:
-            return isinstance(params, (str, bytes, type(None)))
-        return not any(isinstance(value, Iterator) for value in values)
-
-    @staticmethod
-    def _can_retry_pcs_read(method: str, url: str, kwargs: dict[str, Any]) -> bool:
-        """Only replay known reads with reusable request bodies, never writes."""
-        if not PyiCloudSession._has_reusable_params(kwargs.get("params")):
-            return False
-        if kwargs.get("files") or not isinstance(
-            kwargs.get("data"), (str, bytes, type(None))
-        ):
-            return False
-        if method.upper() in {"GET", "HEAD"}:
-            return True
-        if method.upper() != "POST":
-            return False
-        route = urlsplit(url).path.rstrip("/")
-        return route.endswith((
-            "/records/query",
-            "/records/lookup",
-            "/zones/list",
-            "/changes/zone",
-            "/changes/database",
-            "/internal/records/query/batch",
-            "/retrieveItemDetailsInFolders",
-        ))
-
-    def _send_with_pcs_refresh(
-        self,
-        method: str,
-        url: str,
-        *,
-        retry_pcs: bool,
-        pcs_app_name: str | None = None,
-        **kwargs: Any,
-    ) -> Response:
-        """Invalidate rejected grants and refresh/retry a normalized read once.
-
-        Raw callers and mutations retain their one-shot transport contract.
-        Failed refreshes and repeated rejections leave the grant uncached.
-        """
-        # PCS consent belongs to the session's owner, not a public service API.
-        # pylint: disable=protected-access
-        response = super().request(method=method, url=url, **kwargs)
         self._update_session_data(response)
         self._save_session_data()
-        if response.status_code not in {401, 423}:
-            return response
-        if pcs_app_name is None:
-            return response
-        self.service.invalidate_pcs_grants(pcs_app_name)
-        if not retry_pcs or not self._can_retry_pcs_read(method, url, kwargs):
-            return response
-        response.close()
-        self.service._request_pcs_for_service(pcs_app_name)
-        return self._send_with_pcs_refresh(
-            method, url, retry_pcs=False, pcs_app_name=pcs_app_name, **kwargs
-        )
+        return response
 
     def _request(
         self,
@@ -438,9 +346,14 @@ class PyiCloudSession(requests.Session):
         )
 
         try:
-            response = self._send_with_pcs_refresh(
-                method, url, retry_pcs=True, **kwargs
+            response: Response = super().request(
+                method=method,
+                url=url,
+                **kwargs,
             )
+
+            self._update_session_data(response)
+            self._save_session_data()
 
             status_code: int = int(response.status_code)
 

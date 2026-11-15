@@ -4,7 +4,6 @@
 
 from email.message import Message
 import json
-import time
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -14,7 +13,6 @@ from requests import PreparedRequest, Response, Session
 from requests.adapters import HTTPAdapter
 from requests.exceptions import ConnectionError as RequestsConnectionError
 
-from pyicloud import PyiCloudService
 from pyicloud.const import HEADER_DATA
 from pyicloud.services.notes import NotesService, NotesWriteUncertain
 from pyicloud.services.notes.models.write import NotesModifyOperation, NotesWriteRecord
@@ -246,52 +244,3 @@ def test_unrelated_cloudkit_requests_keep_session_dispatch() -> None:
     notes.raw._client.raw_post("/records/query", {})
     session.post.assert_called_once()
     session.close()
-
-
-@pytest.mark.parametrize("status", [200, 401, 423, 403, 500])
-def test_one_shot_mutation_invalidates_rejected_pcs_without_refresh_or_retry(
-    pyicloud_service: PyiCloudService, status: int
-) -> None:
-    """Direct adapter writes discard rejected grants but never renew or replay."""
-    granted_at = time.monotonic()
-    pyicloud_service._pcs_granted.update({"notes3": granted_at, "photos": granted_at})
-    session = pyicloud_service.session
-    session.trust_env = False
-    notes = NotesService("https://example.test", session, {})
-    with (
-        patch(
-            "requests.adapters.HTTPAdapter.send", return_value=reply(status=status)
-        ) as send,
-        patch("requests.Session.request") as dispatch,
-        patch.object(PyiCloudSession, "_save_session_data", autospec=True),
-        patch.object(pyicloud_service, "_send_pcs_request") as request_pcs,
-    ):
-        if status == 200:
-            assert modify(notes).record_change_tag == "new"
-        else:
-            with pytest.raises(NotesWriteUncertain):
-                modify(notes)
-    send.assert_called_once()
-    dispatch.assert_not_called()
-    request_pcs.assert_not_called()
-    assert pyicloud_service._pcs_granted.get("notes3") == (
-        None if status in {401, 423} else granted_at
-    )
-    assert pyicloud_service._pcs_granted["photos"] == granted_at
-    if status in {401, 423}:
-        pyicloud_service._notes = notes
-        with (
-            patch.object(
-                pyicloud_service,
-                "_check_pcs_consent",
-                return_value={"isICDRSDisabled": True},
-            ),
-            patch.object(
-                pyicloud_service,
-                "_send_pcs_request",
-                return_value={"status": "success"},
-            ) as renewal,
-        ):
-            assert pyicloud_service.notes is notes
-        renewal.assert_called_once_with("notes3", derived_from_user_action=True)
-        assert "notes3" in pyicloud_service._pcs_granted

@@ -391,7 +391,7 @@ class PyiCloudService:
         if pause_2fa is None:
             pause_2fa = self._pause_2fa
 
-        self.invalidate_pcs_grants()
+        self._pcs_granted.clear()
         login_successful = False
         if self._try_reuse_cached_session(force_refresh, pause_2fa):
             login_successful = True
@@ -508,7 +508,7 @@ class PyiCloudService:
         self._two_factor_delivery_method = "unknown"
         self._two_factor_delivery_notice = None
         self._webservices = None
-        self.invalidate_pcs_grants()
+        self._pcs_granted.clear()
         self._account = None
         self._calendar = None
         self._contacts = None
@@ -519,7 +519,6 @@ class PyiCloudService:
         self._mail = None
         self._photos = None
         self._reminders = None
-        self._notes = None
         self._invites = None
         self._requires_mfa = False
         self._two_factor_code_requested = False
@@ -765,7 +764,7 @@ class PyiCloudService:
 
     def _authenticate_with_token(self, require_trust: bool = True) -> None:
         """Authenticate using session token."""
-        self.invalidate_pcs_grants()
+        self._pcs_granted.clear()
         if not self.session.data.get("session_token"):
             raise PyiCloudFailedLoginException("No session token available")
 
@@ -1349,7 +1348,7 @@ class PyiCloudService:
         )
 
     def _request_pcs_for_service(self, app_name: str) -> None:
-        """Request PCS access for a specific service."""
+        """Reuse successful PCS queries for a service for up to six hours."""
         granted_at = self._pcs_granted.get(app_name)
         if granted_at is not None and time.monotonic() - granted_at < PCS_GRANT_TTL:
             return
@@ -1358,6 +1357,7 @@ class PyiCloudService:
 
         if not _check_pcs_resp.get("isICDRSDisabled", False):
             LOGGER.debug("Skipping PCS request because Apple reports ICDRS is enabled")
+            self._pcs_granted[app_name] = time.monotonic()
             return
 
         if not _check_pcs_resp.get("isDeviceConsentedForPCS", True):
@@ -1403,17 +1403,6 @@ class PyiCloudService:
 
         LOGGER.error("PCS retries exhausted: %s", resp["message"])
         raise PyiCloudPCSTimeoutException(PCS_ACCESS_ERROR)
-
-    def invalidate_pcs_grants(self, app_name: str | None = None) -> None:
-        """Forget cached PCS access for one service, or all services on session reset.
-
-        This only invalidates local grant state; it does not revoke Apple's
-        consent or trigger a new PCS request.
-        """
-        if app_name is None:
-            self._pcs_granted.clear()
-        else:
-            self._pcs_granted.pop(app_name, None)
 
     def validate_2fa_code(self, code: str) -> bool:
         """Verifies a verification code received via Apple's 2FA system (HSA2)."""

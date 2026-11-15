@@ -38,7 +38,7 @@ from pyicloud.exceptions import (
     PyiCloudServiceUnavailable,
 )
 from pyicloud.services.base import BaseService
-from pyicloud.session import PyiCloudSession, pcs_request_options
+from pyicloud.session import PyiCloudSession
 
 from .client import PhotosCloudKitClient
 from .constants import (
@@ -435,7 +435,6 @@ class BasePhotoLibrary(ABC):
     def _indexing_state_via_rest(self) -> str | None:
         request = self.service.session.post(
             url=self.url,
-            **pcs_request_options(self.service.session, "photos"),
             json={
                 "query": {
                     "recordType": "CheckIndexingState",
@@ -576,7 +575,6 @@ class BasePhotoLibrary(ABC):
             url = f"{endpoint}/zones/list?{params}"
             response = self.service.session.post(
                 url,
-                **pcs_request_options(self.service.session, "photos"),
                 json={},
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             ).json()
@@ -669,7 +667,6 @@ class PhotoLibrary(BasePhotoLibrary):
         payload = _query_request_payload(query=query, zone_id=self.zone_id)
         request = self.service.session.post(
             url=self.url,
-            **pcs_request_options(self.service.session, "photos"),
             json=payload,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
         )
@@ -683,7 +680,6 @@ class PhotoLibrary(BasePhotoLibrary):
             )
             request = self.service.session.post(
                 url=self.url,
-                **pcs_request_options(self.service.session, "photos"),
                 json=payload,
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
@@ -1025,7 +1021,6 @@ class PhotoLibrary(BasePhotoLibrary):
         url = f"{endpoint}/records/modify?{params}"
         response = self.service.session.post(
             url,
-            **pcs_request_options(self.service.session, "photos"),
             json={
                 "operations": [
                     {
@@ -1321,7 +1316,6 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
         ):
             http_response = self.service.session.post(
                 url=self._get_url(),
-                **pcs_request_options(self.service.session, "photos"),
                 json=self._get_payload(
                     offset=max(0, index),
                     page_size=page_size * 2,
@@ -1357,7 +1351,6 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
         ):
             http_response = self.service.session.post(
                 url=self._get_url(),
-                **pcs_request_options(self.service.session, "photos"),
                 json=self._get_photo_payload(photo_id),
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
@@ -1766,7 +1759,6 @@ class PhotoAlbum(BasePhotoAlbum):
             url = f"{endpoint}/records/modify?{params}"
             http_response = self.service.session.post(
                 url,
-                **pcs_request_options(self.service.session, "photos"),
                 json={
                     "atomic": True,
                     "zoneID": self._zone_id,
@@ -1812,7 +1804,6 @@ class PhotoAlbum(BasePhotoAlbum):
             url = f"{endpoint}/records/modify?{params}"
             http_response = self.service.session.post(
                 url,
-                **pcs_request_options(self.service.session, "photos"),
                 json={
                     "atomic": True,
                     "zoneID": self._zone_id,
@@ -1860,7 +1851,6 @@ class PhotoAlbum(BasePhotoAlbum):
             url = f"{endpoint}/records/modify?{params}"
             http_response = self.service.session.post(
                 url,
-                **pcs_request_options(self.service.session, "photos"),
                 json={
                     "atomic": True,
                     "zoneID": self._zone_id,
@@ -2081,7 +2071,6 @@ class PhotoAlbum(BasePhotoAlbum):
             url = f"{endpoint}/internal/records/query/batch?{params}"
             request = self.service.session.post(
                 url,
-                **pcs_request_options(self.service.session, "photos"),
                 json={
                     "batch": [
                         {
@@ -2567,7 +2556,6 @@ class PhotoAsset:
             url = f"{endpoint}/records/modify?{params}"
             http_response = self._service.session.post(
                 url,
-                **pcs_request_options(self._service.session, "photos"),
                 json={
                     "operations": [
                         {
@@ -2660,7 +2648,6 @@ class PhotoAsset:
             url = f"{endpoint}/records/modify?{params}"
             http_response = self._service.session.post(
                 url,
-                **pcs_request_options(self._service.session, "photos"),
                 json={
                     "operations": [
                         {
@@ -2939,7 +2926,6 @@ class PhotosService(BaseService):
         """Discover additional zones via the legacy REST zones/list endpoint."""
         response = self.session.post(
             f"{self.service_endpoint}/zones/list?{urlencode(self.params)}",
-            **pcs_request_options(self.session, "photos"),
             json={},
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
         ).json()

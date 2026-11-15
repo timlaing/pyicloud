@@ -100,9 +100,7 @@ class PhotosCloudKitClient:
         self._upload_url = upload_url
         self._photos_upload_url = photos_upload_url
         self._base_params = base_params
-        self._client = CloudKitContainerClient(
-            base_url, session, base_params, pcs_app_name="photos"
-        )
+        self._client = CloudKitContainerClient(base_url, session, base_params)
         self._uploader: PhotosUploader | None = None
         if photos_upload_url:
             self._uploader = PhotosUploader(
