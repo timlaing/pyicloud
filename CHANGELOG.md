@@ -21,6 +21,13 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Run project Python hooks in the requirements-installed development environment,
   removing duplicated prek dependencies and automated sync commits.
 
+### Fixed
+
+- Cache successful PCS queries for six hours for Photos, Drive, Notes, and Reminders instead of
+  repeatedly prompting for Advanced Data Protection consent during polling.
+  Refresh expired queries, clear cached results on authentication reset, and
+  leave failed queries uncached so subsequent service access can try again.
+
 ## [2026.11.2] - 2026-11-13
 
 ### Added
