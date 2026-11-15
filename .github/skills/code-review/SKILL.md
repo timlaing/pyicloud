@@ -148,17 +148,11 @@ avoid introducing issues that must be suppressed; prefer fixing them in code.
 
 ## 10. CI & Workflows
 
-- `linting.yml`: runs `.venv/bin/prek` (via `j178/prek-action`) on push/PR.
-- `tests.yml`: matrix across Python 3.10–3.14, creates a `venv`, installs
-  `requirements_all.txt` via uv, then runs pytest with coverage (`--cov-report=xml`) and
-  junit output.
-- `sonar.yml`: generates a coverage artifact on push to `main`, then runs the
-  SonarQube Cloud scan; also handles PRs (`pull_request_target`, fork/bot path).
-- `checks.yml`: runs `python3 -m scripts.check.edits` (editable-install sanity check).
-- If you change/remove/add a dependency, keep `requirements_all.txt` and the prek
-  `additional_dependencies` blocks in sync by running
-  `python3 scripts/sync_prek_deps.py requirements_all.txt`; the `check-prek-deps` hook
-  enforces this.
+- `ci.yml` validates PRs to main and main pushes: tests (Python 3.10–3.15), installed distributions, coverage, prek, docs, CodeQL, immutable action references, Actions linting, HA stable runtime compatibility, and PR maintainer editing.
+- `sonar.yml` consumes coverage from a successful CI run in isolation, waits for the Sonar quality gate, then requests and waits for CodeRabbit approval on the current PR head. Main commits require a CodeRabbit-approved merged PR.
+- `publish.yml` updates release drafts and publishes validated main builds to TestPyPI. Published releases rerun CI for the exact tag commit before publishing.
+- Project Python hooks share the requirements-installed environment; activate `.venv` before running prek. There are no generated hook dependency lists to synchronize.
+- See `.github/WORKFLOWS.md` for approval policy and required repository settings.
 
 ## 11. Commit & PR Conventions
 

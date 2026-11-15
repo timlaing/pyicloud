@@ -38,13 +38,13 @@ PyiCloud: a Python library + CLI for interacting with Apple iCloud web services.
 
 - `pyicloud/services/notes/protobuf/` and `pyicloud/services/reminders/protobuf/` contain committed, generated `*_pb2.py` files from `.proto` sources (regenerated with `grpcio-tools`, in the dev dependency group). **Do not hand-edit `*_pb2.py`**; edit the `.proto` (and `typedef.json`) instead. Package dir naming intentionally deviates (see `buf.yaml` lint `ignore_only`).
 
-## Dependency sync quirk
+## Development hook dependencies
 
-- Dev dependencies live in `requirements_dev.txt` and (with runtime/cli ones) get **synced into the prek `additional_dependencies` blocks** in `.pre-commit-config.yaml` by `scripts/sync_prek_deps.py`. If you add/change a dependency, run `python3 scripts/sync_prek_deps.py requirements_all.txt`; the prek hook `check-prek-deps` enforces that the two are in sync.
+- Project Python hooks use `language: system` and the same activated environment as the project. Run `scripts/setup.sh`, then `source .venv/bin/activate` before running prek. After changing dependencies, run `scripts/startup.sh`. Requirements files are the only dependency source; no generated `additional_dependencies` copies or sync commits are needed.
 
 ## Documentation
 
-- The `docs/` tree is an MkDocs site published to Read the Docs via `.readthedocs.yaml`; `.github/workflows/docs.yml` runs `mkdocs build --strict` on pushes and PRs to `main`.
+- The `docs/` tree is an MkDocs site published to Read the Docs via `.readthedocs.yaml`; `.github/workflows/ci.yml` runs `mkdocs build --strict` on pushes and PRs to `main`.
 - Docs-only dependencies live in `docs/requirements.txt`; preview locally with `pip install -r docs/requirements.txt`, `pip install ".[cli]"`, then `mkdocs serve`.
 - Register every new page in the `nav:` of `mkdocs.yml` — pages absent from the nav are not published. `docs/research/` and `docs/hooks/` are excluded from the published site.
 
@@ -63,7 +63,7 @@ PyiCloud: a Python library + CLI for interacting with Apple iCloud web services.
 - Releases up to `2.7.0` follow [Semantic Versioning](https://semver.org/); from `2026.10.0` onwards, versions follow [CalVer](https://calver.org/) (`YYYY.M.PATCH`).
 - All PRs must add user-facing changes to `CHANGELOG.md` under a top `[Unreleased]` heading (create it if it is missing), using the appropriate categories (Added, Changed, Fixed, Removed, Deprecated, Security, Refactored, Tests, etc.).
 - To release, rename the `[Unreleased]` heading to `[YYYY.M.PATCH] - YYYY-MM-DD` (e.g., `[2026.10.0] - 2026-10-12`); leave no empty `[Unreleased]` section behind, and do not add a comparison-links footer.
-- Cut the release by publishing the draft release that Release Drafter maintains (`.github/workflows/release-drafter.yml`): set its tag and title to the CalVer version (e.g., `2026.10.0`, matching the `CHANGELOG.md` heading) and publish it. `.github/workflows/publish.yml` then runs on the release event and publishes to PyPI, or to TestPyPI when the release is marked as a prerelease. Pushes to `main` also publish development builds to TestPyPI. TestPyPI publishing uses the `test` GitHub environment.
+- Cut the release by publishing the draft release that Release Drafter maintains (`.github/workflows/publish.yml`): set its tag and title to the CalVer version (e.g., `2026.10.0`, matching the `CHANGELOG.md` heading) and publish it. `.github/workflows/publish.yml` then runs on the release event and publishes to PyPI, or to TestPyPI when the release is marked as a prerelease. Validated pushes to `main` from CodeRabbit-approved PRs also publish development builds to TestPyPI. TestPyPI publishing uses the `test` GitHub environment.
 - Never hand-edit version numbers - they come from git tags via setuptools-scm.
 - **Never bypass commit checks** (e.g., `git commit --no-verify`). All pre-commit hooks must pass locally before committing changes. If a hook fails due to false positives, fix the configuration or the files properly - do not skip the checks. Only bypass checks with explicit case-by-case approval from the user.
 - When adding words to cspell dictionaries (e.g., `.vscode/cspell.json`), ensure words are in **lowercase** and in **alphabetical order**.

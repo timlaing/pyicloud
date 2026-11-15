@@ -6,16 +6,18 @@ name: Close stale issues
 
 # yamllint disable-line rule:truthy
 on:
+  schedule:
+    - cron: "30 1 * * *"
   workflow_dispatch:
 
 # Only what actions/stale actually uses. issues: write lets the action label
 # and close issues, with close-issue-reason above describing that issue
 # lifecycle. pull-requests: write lets it clear a stale label from a pull
 # request when activity resumes, which still runs even though PR staling is
-# disabled below. There is no checkout, so the token needs no contents
-# access; anything more would fail #370's check that this workflow holds
-# only the permissions it requires.
+# disabled below. actions: write lets the action restore and replace its
+# processing-state cache between daily runs. No checkout needs contents access.
 permissions:
+  actions: write
   issues: write
   pull-requests: write
 
@@ -23,10 +25,11 @@ jobs:
   stale:
     name: Process stale issues
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Mark and close stale issues
-        uses: actions/stale@v11
+        uses: actions/stale@4391f3da665fdf50b6810c1a66712fb9ba21aa93 # v11
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 

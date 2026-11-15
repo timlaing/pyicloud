@@ -245,7 +245,7 @@ class SonarWorkflowTests(unittest.TestCase):
         self.assertEqual(len(re.findall(r"secrets\.SONAR_TOKEN\b", prefix)), 1)
         self.assertEqual(scanners.count("SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}"), 2)
         self.assertIn("HAS_SONAR_TOKEN: ${{ secrets.SONAR_TOKEN != '' }}", prefix)
-        self.assertNotIn("pull-requests: write", workflow)
+        self.assertNotIn("pull-requests: write", prefix)
 
 
 if __name__ == "__main__":
