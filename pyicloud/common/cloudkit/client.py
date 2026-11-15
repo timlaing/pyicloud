@@ -324,6 +324,13 @@ class _CloudKitHTTP:
         """Send the pinned adapter once, without session replay or response hooks."""
         response = HTTPAdapter.send(adapter, request, timeout=self._timeout, **settings)
         try:
+            if (
+                self._pcs_app_name is not None
+                and issubclass(type(self._session), PyiCloudSession)
+                and response.status_code in {401, 423}
+            ):
+                # Invalidate only: one-shot mutations must never refresh or replay.
+                self._session.service._pcs_granted.pop(self._pcs_app_name, None)  # pylint: disable=protected-access
             store_cookies = cast(
                 Callable[[Any, Any, Any], None], extract_cookies_to_jar
             )

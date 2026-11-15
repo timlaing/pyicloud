@@ -549,3 +549,40 @@ def test_injected_sessions_do_not_receive_pcs_extension_kwargs() -> None:
 def test_existing_cloudkit_read_routes_are_retryable(route: str) -> None:
     """Use the existing read operation routes, including sync and batch counts."""
     assert PyiCloudSession._can_retry_pcs_read("POST", CK_ROOT + route, {"json": {}})
+
+
+@pytest.mark.parametrize("status", [401, 423])
+@pytest.mark.parametrize(
+    ("operation", "args"),
+    [
+        ("create_folders", ("root", "name")),
+        ("delete_items", ("id", "etag")),
+        ("rename_items", ("id", "etag", "name")),
+        ("move_items_to_trash", ("id", "etag")),
+        ("recover_items_from_trash", ("id", "etag")),
+        ("delete_forever_from_trash", ("id", "etag")),
+    ],
+)
+def test_drive_write_rejection_invalidates_grant_without_replaying(
+    pcs_service: PyiCloudService,
+    status: int,
+    operation: str,
+    args: tuple[str, ...],
+) -> None:
+    """Write failures allow later renewal, but never initiate it or replay writes."""
+    _grant(pcs_service, "iclouddrive", "photos")
+    drive = DriveService(
+        DRIVE_ROOT, DOC_ROOT, pcs_service.session, {"clientId": "test"}
+    )
+    invoke = getattr(drive, operation)
+    with (
+        patch(
+            "requests.Session.request", return_value=_response(status, DRIVE_ROOT)
+        ) as send,
+        pytest.raises(PyiCloudAPIResponseException),
+    ):
+        invoke(*args)
+    send.assert_called_once()
+    assert set(pcs_service._pcs_granted) == {"photos"}
+    assert isinstance(pcs_service._send_pcs_request, MagicMock)
+    pcs_service._send_pcs_request.assert_not_called()

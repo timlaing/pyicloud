@@ -157,6 +157,7 @@ class DriveService(BaseService):
 
         request: Response = self.session.post(
             self._document_root + f"/ws/{zone}/upload/web",
+            **pcs_request_options(self.session, "iclouddrive"),
             params=file_params,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             json={
@@ -209,6 +210,7 @@ class DriveService(BaseService):
 
         request: Response = self.session.post(
             self._document_root + f"/ws/{zone}/update/documents",
+            **pcs_request_options(self.session, "iclouddrive"),
             params=self.params if request_params is None else request_params,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             json=data,
@@ -257,6 +259,7 @@ class DriveService(BaseService):
         temp_client_id: str = f"FOLDER::UNKNOWN_ZONE::TempId-{uuid.uuid4()}"
         request: Response = self.session.post(
             self.service_root + "/createFolders",
+            **pcs_request_options(self.session, "iclouddrive"),
             params=self.params,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             json={
@@ -276,6 +279,7 @@ class DriveService(BaseService):
         """Deletes an iCloud Drive node"""
         request: Response = self.session.post(
             self.service_root + "/deleteItems",
+            **pcs_request_options(self.session, "iclouddrive"),
             params=self.params,
             json={
                 "items": [
@@ -294,6 +298,7 @@ class DriveService(BaseService):
         """Renames an iCloud Drive node"""
         request: Response = self.session.post(
             self.service_root + "/renameItems",
+            **pcs_request_options(self.session, "iclouddrive"),
             params=self.params,
             json={
                 "items": [
@@ -321,6 +326,7 @@ class DriveService(BaseService):
         # when moving a node on icloud.com, the clientID is set to the node_id:
         request: Response = self.session.post(
             self.service_root + "/moveItems",
+            **pcs_request_options(self.session, "iclouddrive"),
             params=self.params,
             json={
                 "destinationDrivewsId": destination.data["drivewsid"],
@@ -345,6 +351,7 @@ class DriveService(BaseService):
         temp_client_id: str = node_id
         request: Response = self.session.post(
             self.service_root + "/moveItemsToTrash",
+            **pcs_request_options(self.session, "iclouddrive"),
             params=self.params,
             json={
                 "items": [
@@ -364,6 +371,7 @@ class DriveService(BaseService):
         """Restores an iCloud Drive node from the trash bin"""
         request: Response = self.session.post(
             self.service_root + "/putBackItemsFromTrash",
+            **pcs_request_options(self.session, "iclouddrive"),
             params=self.params,
             json={
                 "items": [
@@ -381,6 +389,7 @@ class DriveService(BaseService):
         """Permanently deletes an iCloud Drive node from the trash bin"""
         request: Response = self.session.post(
             self.service_root + "/deleteItems",
+            **pcs_request_options(self.session, "iclouddrive"),
             params=self.params,
             json={
                 "items": [

@@ -276,6 +276,7 @@ def test_create_folders(pyicloud_service_working: PyiCloudService) -> None:
         assert response == mock_response
         mock_post.assert_called_once_with(
             drive.service_root + "/createFolders",
+            pcs_app_name="iclouddrive",
             params=drive.params,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             json=ANY,
@@ -293,6 +294,7 @@ def test_delete_items(pyicloud_service_working: PyiCloudService) -> None:
         assert response == mock_response
         mock_post.assert_called_once_with(
             drive.service_root + "/deleteItems",
+            pcs_app_name="iclouddrive",
             params=drive.params,
             json={
                 "items": [
@@ -319,6 +321,7 @@ def test_rename_items(pyicloud_service_working: PyiCloudService) -> None:
         assert response == mock_response
         mock_post.assert_called_once_with(
             drive.service_root + "/renameItems",
+            pcs_app_name="iclouddrive",
             params=drive.params,
             json={
                 "items": [
@@ -339,6 +342,7 @@ def test_move_items_to_trash(pyicloud_service_working: PyiCloudService) -> None:
         assert response == mock_response
         mock_post.assert_called_once_with(
             drive.service_root + "/moveItemsToTrash",
+            pcs_app_name="iclouddrive",
             params=drive.params,
             json={
                 "items": [
@@ -359,6 +363,7 @@ def test_recover_items_from_trash(pyicloud_service_working: PyiCloudService) -> 
         assert response == mock_response
         mock_post.assert_called_once_with(
             drive.service_root + "/putBackItemsFromTrash",
+            pcs_app_name="iclouddrive",
             params=drive.params,
             json={
                 "items": [
@@ -379,6 +384,7 @@ def test_delete_forever_from_trash(pyicloud_service_working: PyiCloudService) ->
         assert response == mock_response
         mock_post.assert_called_once_with(
             drive.service_root + "/deleteItems",
+            pcs_app_name="iclouddrive",
             params=drive.params,
             json={
                 "items": [
@@ -415,6 +421,7 @@ def test_get_upload_contentws_url_success(
 
         mock_post.assert_called_once_with(
             drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",
+            pcs_app_name="iclouddrive",
             params=ANY,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             json={
@@ -453,6 +460,7 @@ def test_get_upload_contentws_url_no_content_type(
 
         mock_post.assert_called_once_with(
             drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",
+            pcs_app_name="iclouddrive",
             params=ANY,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             json={
@@ -484,6 +492,7 @@ def test_get_upload_contentws_url_error_response(
 
         mock_post.assert_called_once_with(
             drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",
+            pcs_app_name="iclouddrive",
             params=ANY,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             json={
@@ -518,6 +527,7 @@ def test_get_upload_contentws_url_invalid_response_format(
 
         mock_post.assert_called_once_with(
             drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",
+            pcs_app_name="iclouddrive",
             params=ANY,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             json={
@@ -569,6 +579,7 @@ def test_send_file_success(mock_service_with_cookies: PyiCloudService) -> None:
         # Assert _get_upload_contentws_url call
         mock_post.assert_any_call(
             drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",
+            pcs_app_name="iclouddrive",
             params=ANY,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             json={
@@ -588,6 +599,7 @@ def test_send_file_success(mock_service_with_cookies: PyiCloudService) -> None:
         # Assert _update_contentws call
         mock_post.assert_any_call(
             drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/update/documents",
+            pcs_app_name="iclouddrive",
             params={**drive.params, "token": "768y9u"},
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             json=ANY,
@@ -624,6 +636,7 @@ def test_send_file_upload_error(mock_service_with_cookies: PyiCloudService) -> N
         # Assert _get_upload_contentws_url call
         mock_post.assert_any_call(
             drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",
+            pcs_app_name="iclouddrive",
             params=ANY,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             json={
@@ -680,6 +693,7 @@ def test_send_file_update_error(mock_service_with_cookies: PyiCloudService) -> N
         # Assert _get_upload_contentws_url call
         mock_post.assert_any_call(
             drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",
+            pcs_app_name="iclouddrive",
             params=ANY,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             json={
@@ -699,6 +713,7 @@ def test_send_file_update_error(mock_service_with_cookies: PyiCloudService) -> N
         # Assert _update_contentws call
         mock_post.assert_any_call(
             drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/update/documents",
+            pcs_app_name="iclouddrive",
             params={**drive.params, "token": "768y9u"},
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             json=ANY,
