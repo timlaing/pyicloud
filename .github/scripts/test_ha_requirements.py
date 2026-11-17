@@ -1,8 +1,11 @@
 """Exercise HA compatibility policy without network access."""
 
+from contextlib import redirect_stdout
 import importlib.util
+import io
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 SPEC = importlib.util.spec_from_file_location(
     "ha_requirements",
@@ -89,6 +92,47 @@ class HomeAssistantPolicyTests(unittest.TestCase):
         self.assertEqual(set(fetched), set(files))
         self.assertEqual(len(POLICY.incompatible("cryptography>=51", pins)), 1)
         self.assertEqual(len(POLICY.incompatible("protobuf<7", pins)), 1)
+
+
+class ReleaseResolutionTests(unittest.TestCase):
+    """CI may resolve the stable release with its read-only authenticated client."""
+
+    def test_explicit_release_avoids_anonymous_metadata_api(self) -> None:
+        """A CI-provided immutable tag still runs the full compatibility check."""
+        with (
+            patch.object(POLICY.urllib.request, "urlopen") as request,
+            patch.object(POLICY, "load_pins", return_value="requests==2.33") as pins,
+            patch.object(Path, "read_text", return_value="requests>=2"),
+            redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(POLICY.main(["--release", "2026.11.1"]), 0)
+            request.assert_not_called()
+            pins.assert_called_once_with("2026.11.1")
+
+    def test_invalid_release_never_fetches_pins(self) -> None:
+        """An unchecked reference cannot select arbitrary branch content."""
+        with (
+            patch.object(POLICY, "load_pins") as pins,
+            self.assertRaisesRegex(
+                ValueError, "Unexpected Home Assistant stable release"
+            ),
+        ):
+            POLICY.main(["--release", "main"])
+        pins.assert_not_called()
+
+    def test_local_default_resolves_release_and_reports_conflicts(self) -> None:
+        """Local use retains metadata resolution and rejects incompatible bounds."""
+        with (
+            patch.object(
+                POLICY.urllib.request,
+                "urlopen",
+                return_value=io.StringIO('{"tag_name":"2026.11.1"}'),
+            ),
+            patch.object(POLICY, "load_pins", return_value="requests==2.33"),
+            patch.object(Path, "read_text", return_value="requests>=3"),
+            redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(POLICY.main([]), 1)
 
 
 if __name__ == "__main__":
