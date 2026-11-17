@@ -1,10 +1,11 @@
 # Repository workflows
 
-Seven workflows implement the repository policy:
+Eight workflows implement the repository policy:
 
 | File                    | Purpose                                                                                                                                                                                             |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ci.yml`                | Tests, per-file coverage, package installation, prek, docs, Actions linting, SHA pins, HA compatibility, and PR maintainer editing.                                                                 |
+| `scheduled-codeql.yml`  | Weekly and manually dispatched Python/Actions security analysis of the default branch.                                                                                                              |
 | `sonar.yml`             | Safely import successful CI coverage, pass Sonar's quality gate and CodeQL, then request and wait for CodeRabbit approval. Publish the `Quality` commit status.                                     |
 | `approve-workflows.yml` | Approve blocked CI for collaborators, same-repository Dependabot, and authors with a previously merged PR to this fork.                                                                             |
 | `dependabot.yml`        | After successful Quality, approve the exact Dependabot head and merge or enable native auto-merge. Includes major updates.                                                                          |
@@ -105,3 +106,7 @@ prek run --all-files
 The HA check requires network access and `packaging`. Other policy tests use
 synthetic API responses and local files without credentials. Hosted validation
 is still required for approval events, CodeRabbit, Sonar, and trusted publishing.
+
+## Scheduled security analysis
+
+`scheduled-codeql.yml` scans the current default branch weekly and can be dispatched manually. It scans Python and GitHub Actions without waiting for CI or CodeRabbit, so newly recognized issues can be reported between commits. PR and main-commit validation still use the existing required `CI passed` and `Quality` gates.
