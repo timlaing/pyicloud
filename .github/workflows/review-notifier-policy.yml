@@ -1,6 +1,8 @@
 # cspell:ignore basehead
 name: Review notifier policy
 "on":
+  pull_request:
+    branches: [main]
   pull_request_target:
     branches: [main]
     types: [opened, synchronize, reopened, ready_for_review]
@@ -12,10 +14,18 @@ name: Review notifier policy
         type: string
 permissions: {}
 concurrency:
-  group: notifier-policy-${{ github.event.pull_request.number || inputs.revision }}
+  group: notifier-policy-${{ github.event_name == 'pull_request' && 'registration' || 'validation' }}-${{ github.event.pull_request.number || inputs.revision }}
   cancel-in-progress: true
 jobs:
+  register:
+    name: Register trusted policy workflow
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - run: "true"
   validate:
+    if: github.event_name != 'pull_request'
     name: Inspect review event policy
     runs-on: ubuntu-latest
     timeout-minutes: 10
