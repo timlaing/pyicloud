@@ -19,6 +19,17 @@ function fixture(event = "pull_request") {
   const responses = {
     associated: [structuredClone(pr)],
     reviews: [],
+    checks: ["CI passed", "SonarCloud", "CodeQL"].map((name, id) => ({
+      id,
+      name,
+      app: {
+        slug:
+          name === "CI passed" ? "github-actions" : "github-advanced-security",
+      },
+      status: "completed",
+      conclusion: "success",
+    })),
+    statuses: [],
     comments: [],
     previous: [],
     runs: [],
@@ -33,10 +44,12 @@ function fixture(event = "pull_request") {
     rest: {
       repos: {
         listPullRequestsAssociatedWithCommit: "associated",
+        listCommitStatusesForRef: "statuses",
         getCollaboratorPermissionLevel: route("permission", () => ({
           permission: responses.permission,
         })),
       },
+      checks: { listForRef: "checks" },
       pulls: {
         get: route("get", () => responses.current),
         listReviews: "reviews",
@@ -314,4 +327,54 @@ test("a queued CI run is present and must not time out or be approved again", as
   };
   await approve(f);
   assert.equal(f.calls.filter(([name]) => name === "approveRun").length, 0);
+});
+
+test("CodeRabbit cannot start before all reported checks succeed", async () => {
+  for (const state of ["pending", "failure", "error"]) {
+    const f = fixture();
+    f.responses.statuses.push({
+      id: 99,
+      context: "External documentation",
+      state,
+    });
+    await assert.rejects(review(f), /40 minutes/);
+    assert.equal(f.calls.filter(([name]) => name === "comment").length, 0);
+  }
+  const f = fixture();
+  f.responses.statuses.push({
+    id: 99,
+    context: "External documentation",
+    state: "pending",
+  });
+  f.sleep = async () => {
+    f.responses.statuses.at(-1).state = "success";
+    if (f.calls.some(([name]) => name === "comment"))
+      f.responses.reviews = [
+        {
+          user: { login: "coderabbitai[bot]" },
+          commit_id: sha,
+          state: "APPROVED",
+        },
+      ];
+  };
+  await review(f);
+  assert.equal(f.calls.filter(([name]) => name === "comment").length, 1);
+});
+
+test("review dismissal notifications withdraw Quality until current-head approval returns", async () => {
+  const f = fixture("pull_request_review");
+  f.responses.reviews = [
+    {
+      user: { login: "coderabbitai[bot]" },
+      commit_id: sha,
+      state: "DISMISSED",
+    },
+  ];
+  await assert.rejects(review(f), /40 minutes/);
+  f.responses.reviews.push({
+    user: { login: "coderabbitai[bot]" },
+    commit_id: sha,
+    state: "APPROVED",
+  });
+  await review(f);
 });

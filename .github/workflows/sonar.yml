@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   sonarqube:
-    if: github.event.workflow_run.conclusion == 'success' && contains(fromJSON('["push", "pull_request"]'), github.event.workflow_run.event)
+    if: github.event.workflow_run.path == '.github/workflows/ci.yml' && github.event.workflow_run.conclusion == 'success' && contains(fromJSON('["push", "pull_request"]'), github.event.workflow_run.event)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
@@ -253,6 +253,8 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
+      checks: read
+      statuses: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -267,7 +269,7 @@ jobs:
   result:
     name: Quality result
     needs: [sonarqube, codeql, review]
-    if: always() && github.event.workflow_run.conclusion == 'success' && contains(fromJSON('["push", "pull_request"]'), github.event.workflow_run.event)
+    if: always() && github.event.workflow_run.path == '.github/workflows/ci.yml' && github.event.workflow_run.conclusion == 'success' && contains(fromJSON('["push", "pull_request"]'), github.event.workflow_run.event)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

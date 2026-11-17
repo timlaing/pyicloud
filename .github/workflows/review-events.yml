@@ -1,0 +1,14 @@
+name: Review events
+"on":
+  pull_request_review:
+    types: [submitted, dismissed]
+  pull_request:
+    types: [ready_for_review]
+permissions: {}
+jobs:
+  notify:
+    name: Review event notification
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - run: "true"

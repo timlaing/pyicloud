@@ -263,6 +263,16 @@ class ManualCIWorkflowTests(unittest.TestCase):
         self.assertIn("auto_review:\n    enabled: false", config)
         self.assertIn("auto_incremental_review: false", config)
 
+    def test_review_notifications_do_not_trigger_publication(self) -> None:
+        """Approval rechecks must not trigger the publication workflow."""
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("workflows: [CI]", workflow)
+        observer = WORKFLOW.with_name("review-status.yml").read_text(encoding="utf-8")
+        self.assertIn("workflows: [Review events]", observer)
+        self.assertIn("ref: ${{ github.event.repository.default_branch }}", observer)
+        self.assertIn("context: 'Quality'", observer)
+        self.assertNotIn("SONAR_TOKEN", observer)
+
     def test_checkout_uses_only_the_event_revision(self) -> None:
         """The Actions branch selector sets the manual run's source and cache scope."""
         workflow = WORKFLOW.with_name("ci.yml").read_text(encoding="utf-8")

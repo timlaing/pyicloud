@@ -10,6 +10,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Security
 
+- Gate CodeRabbit review requests on all reported validation checks and recheck withdrawn approvals.
+
 - Bind all CI checkouts to the event revision so arbitrary checkout refs cannot write default-branch caches. Use the Actions branch selector to validate a repository branch or tag.
 
 - Run weekly Python and GitHub Actions CodeQL analysis independently of pull-request validation.
