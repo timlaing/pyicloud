@@ -13,5 +13,7 @@ pytest-asyncio
 pytest-cov
 pytest-socket
 pytest-timeout
+
+PyYAML==6.0.3
 ruff
 types-requests

@@ -1,3 +1,5 @@
+const checkKey = check => `${check.app?.id ?? check.app?.slug ?? "unknown"}:${check.name}`;
+const statusKey = status => `${status.creator?.id ?? status.creator?.login ?? "unknown"}:${status.context}`;
 /** Gate CodeRabbit on CI + Sonar, and require its approval for the exact PR head. */
 module.exports = async ({
   github,
@@ -79,10 +81,10 @@ module.exports = async ({
         }),
       ),
     );
-    const mergeNames = new Set(groups[0].map((check) => check.name));
+    const mergeNames = new Set(groups[0].map(checkKey));
     const checks = [
       ...groups[0],
-      ...(groups[1] || []).filter((check) => !mergeNames.has(check.name)),
+      ...(groups[1] || []).filter((check) => !mergeNames.has(checkKey(check))),
     ];
     const statuses = await github.paginate(
       github.rest.repos.listCommitStatusesForRef,
@@ -103,37 +105,28 @@ module.exports = async ({
     ]);
     const latestChecks = new Map();
     for (const check of checks.sort((left, right) => left.id - right.id))
-      latestChecks.set(check.name, check);
+      latestChecks.set(checkKey(check), check);
     const latestStatuses = new Map();
     for (const status of statuses.sort((left, right) => left.id - right.id))
-      latestStatuses.set(status.context, status);
-    const required = ["CI passed", "SonarCloud", "CodeQL"];
+      latestStatuses.set(statusKey(status), status);
+    const required = ["CI passed", "SonarCloud", "CodeQL", "Review notifier policy"];
     const passed = required.every((name) => {
-      const expectedApp =
-        name === "CI passed" ? "github-actions" : "github-advanced-security";
-      const check = latestChecks.get(name);
-      if (check)
-        return (
-          check.app?.slug === expectedApp &&
-          check.status === "completed" &&
-          check.conclusion === "success"
-        );
-      const status = latestStatuses.get(name);
-      return (
-        status?.creator?.login === `${expectedApp}[bot]` &&
-        status.state === "success"
-      );
+      const expectedApp = ["CI passed", "Review notifier policy"].includes(name) ? "github-actions" : "github-advanced-security";
+      const check = [...latestChecks.values()].find(item => item.name === name && item.app?.slug === expectedApp);
+      if (name !== "Review notifier policy" && check) return check.status === "completed" && check.conclusion === "success";
+      const status = [...latestStatuses.values()].find(item => item.context === name && item.creator?.login === expectedApp + "[bot]");
+      return status?.state === "success";
     });
     return (
       passed &&
-      [...latestChecks].every(
-        ([name, check]) =>
-          excluded.has(name) ||
+      [...latestChecks.values()].every(
+        (check) =>
+          excluded.has(check.name) ||
           (check.status === "completed" &&
             ["success", "skipped"].includes(check.conclusion)),
       ) &&
-      [...latestStatuses].every(
-        ([name, status]) => excluded.has(name) || status.state === "success",
+      [...latestStatuses.values()].every(
+        (status) => excluded.has(status.context) || status.state === "success",
       )
     );
   };

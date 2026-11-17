@@ -29,7 +29,7 @@ function fixture(event = "pull_request") {
       status: "completed",
       conclusion: "success",
     })),
-    statuses: [],
+    statuses: [{id: 1, context: "Review notifier policy", creator: {login: "github-actions[bot]"}, state: "success"}, {id: 2, context: "Quality", creator: {login: "github-actions[bot]"}, state: "pending"}],
     comments: [],
     previous: [],
     runs: [],
@@ -377,4 +377,19 @@ test("review dismissal notifications withdraw Quality until current-head approva
     state: "APPROVED",
   });
   await review(f);
+});
+
+test("same-named checks from another App cannot hide validation failure", async () => {
+  const f = fixture();
+  f.responses.checks.push({id: 10, name: "External security", app: {slug: "trusted"}, status: "completed", conclusion: "failure"});
+  f.responses.checks.push({id: 11, name: "External security", app: {slug: "other"}, status: "completed", conclusion: "success"});
+  await assert.rejects(review(f), /40 minutes/);
+  assert.equal(f.calls.filter(([name]) => name === "comment").length, 0);
+});
+test("the notifier policy needs its trusted commit status, not a PR CheckRun", async () => {
+  const f = fixture();
+  f.responses.statuses = [];
+  f.responses.checks.push({id: 12, name: "Review notifier policy", app: {slug: "github-actions"}, status: "completed", conclusion: "success"});
+  await assert.rejects(review(f), /40 minutes/);
+  assert.equal(f.calls.filter(([name]) => name === "comment").length, 0);
 });

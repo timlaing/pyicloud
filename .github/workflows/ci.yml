@@ -258,12 +258,15 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.14"
-      - run: python -m pip install packaging
+      - run: |
+          python -m pip install --only-binary=:all: packaging PyYAML==6.0.3
       - run: python scripts/check_action_refs.py .github/workflows
       - uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2
       - run: node --test .github/scripts/*.test.cjs
       - run: python3 -I .github/scripts/test_sonar_workflow.py
       - run: python3 -I .github/scripts/test_ha_requirements.py
+      - run: python3 -I .github/scripts/test_workflow_policy.py
+      - run: python3 -I .github/scripts/test_review_notifier.py
       - name: Check Home Assistant release compatibility
         env:
           GH_TOKEN: ${{ github.token }}

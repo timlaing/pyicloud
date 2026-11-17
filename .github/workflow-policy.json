@@ -1,0 +1,12 @@
+{
+  "default_workflow_permissions": "read",
+  "required_checks": ["CI passed", "Quality", "Review notifier policy"],
+  "review_gate_requires_main": true,
+  "sha_pinning_required": true,
+  "validation_checks": [
+    "CI passed",
+    "SonarCloud",
+    "CodeQL",
+    "Review notifier policy"
+  ]
+}
