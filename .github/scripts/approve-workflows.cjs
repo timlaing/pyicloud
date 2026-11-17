@@ -103,19 +103,9 @@ module.exports = async ({
         `Approved CI run ${run.id} for returning contributor ${current.user.login}`,
       );
     }
-    if (
-      ci.some(
-        (run) =>
-          ["in_progress", "completed"].includes(run.status) &&
-          run.conclusion !== "action_required",
-      ) ||
-      ci.some(
-        (run) =>
-          run.status === "action_required" ||
-          run.conclusion === "action_required",
-      )
-    )
-      return;
+    // A queued run already exists and needs no approval. Queue congestion must
+    // not be reported as a missing CI run or consume the approval retry window.
+    if (ci.length > 0) return;
     await sleep(10000);
   }
   throw new Error(

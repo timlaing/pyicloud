@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 from collections.abc import Callable
 import json
 from pathlib import Path
@@ -83,12 +84,19 @@ def load_pins(tag: str, fetch: Callable[[str], str] = read_url) -> str:
     return "\n".join(lines)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     """Resolve HA's stable release once, then compare immutable release pins."""
-    with urllib.request.urlopen(
-        "https://api.github.com/repos/home-assistant/core/releases/latest", timeout=30
-    ) as response:
-        tag = json.load(response)["tag_name"]
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--release", help="Stable HA release resolved by authenticated CI"
+    )
+    tag = parser.parse_args(argv).release
+    if tag is None:
+        with urllib.request.urlopen(
+            "https://api.github.com/repos/home-assistant/core/releases/latest",
+            timeout=30,
+        ) as response:
+            tag = json.load(response)["tag_name"]
     if not re.fullmatch(r"\d{4}\.\d+\.\d+", tag):
         raise ValueError(f"Unexpected Home Assistant stable release: {tag}")
     print(f"Comparing runtime requirements with Home Assistant {tag}")

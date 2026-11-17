@@ -8,7 +8,14 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ## [Unreleased]
 
+### Security
+
+- Run weekly Python and GitHub Actions CodeQL analysis independently of pull-request validation.
+
 ### Changed
+
+- Recognize queued contributor CI runs without reporting a missing-run approval timeout.
+- Resolve Home Assistant release metadata through authenticated CI to avoid shared-runner API rate limits.
 
 - Require a completed current-commit assessment for CodeRabbit approval, respect
   conditional HA dependency markers, and preserve daily stale-processing progress.

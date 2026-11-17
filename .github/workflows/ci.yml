@@ -274,7 +274,12 @@ jobs:
       - run: node --test .github/scripts/*.test.cjs
       - run: python3 -I .github/scripts/test_sonar_workflow.py
       - run: python3 -I .github/scripts/test_ha_requirements.py
-      - run: python scripts/check/ha_requirements.py
+      - name: Check Home Assistant release compatibility
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ha_release_tag="$(gh api repos/home-assistant/core/releases/latest --jq .tag_name)"
+          python scripts/check/ha_requirements.py --release "$ha_release_tag"
       - name: Check PR maintainer editing
         if: github.event_name == 'pull_request'
         run: python -m scripts.check.edits
