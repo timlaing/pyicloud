@@ -271,10 +271,7 @@ class ManualCIWorkflowTests(unittest.TestCase):
         self.assertTrue(references)
         self.assertEqual(
             set(references),
-            {
-                "${{ github.event_name == 'pull_request' && "
-                "github.event.pull_request.head.sha || github.sha }}"
-            },
+            {"${{ github.sha }}"},
         )
 
 
