@@ -251,6 +251,18 @@ class SonarWorkflowTests(unittest.TestCase):
 class ManualCIWorkflowTests(unittest.TestCase):
     """Manual CI must not run arbitrary input refs with default-branch cache scope."""
 
+    def test_release_caller_uses_the_validated_event_revision(self) -> None:
+        """Release CI cannot reintroduce arbitrary refs under another cache scope."""
+        workflow = WORKFLOW.with_name("publish.yml").read_text(encoding="utf-8")
+        self.assertNotIn("with:\n      ref:", workflow)
+        self.assertIn("data.sha !== context.sha", workflow)
+
+    def test_push_reviews_are_disabled(self) -> None:
+        """CodeRabbit starts through the post-validation requester only."""
+        config = (WORKFLOW.parents[2] / ".coderabbit.yaml").read_text(encoding="utf-8")
+        self.assertIn("auto_review:\n    enabled: false", config)
+        self.assertIn("auto_incremental_review: false", config)
+
     def test_checkout_uses_only_the_event_revision(self) -> None:
         """The Actions branch selector sets the manual run's source and cache scope."""
         workflow = WORKFLOW.with_name("ci.yml").read_text(encoding="utf-8")
