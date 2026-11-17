@@ -182,7 +182,7 @@ module.exports = async ({
     requested = true;
   };
   // Bounded waiting replaces the previous event/cooldown race. New commits invalidate this run.
-  for (let attempt = 0; attempt < 120; attempt++) {
+  for (let attempt = 0; attempt < 40; attempt++) {
     const { data: current } = await github.rest.pulls.get({
       owner,
       repo,
@@ -195,7 +195,7 @@ module.exports = async ({
       if (!requested) await requestReview();
     }
     core.info(`Waiting for CodeRabbit approval of PR #${pr.number} at ${sha}`);
-    await sleep(20000);
+    await sleep(60000);
   }
   if (request?.id) {
     await github.rest.issues.updateComment({
