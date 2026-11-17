@@ -248,5 +248,23 @@ class SonarWorkflowTests(unittest.TestCase):
         self.assertNotIn("pull-requests: write", prefix)
 
 
+class ManualCIWorkflowTests(unittest.TestCase):
+    """Manual CI must not run arbitrary input refs with default-branch cache scope."""
+
+    def test_checkout_uses_only_the_event_revision(self) -> None:
+        """The Actions branch selector sets the manual run's source and cache scope."""
+        workflow = WORKFLOW.with_name("ci.yml").read_text(encoding="utf-8")
+        self.assertNotIn("inputs.ref", workflow)
+        references = re.findall(r"^\s+ref:\s*([^\n]+)$", workflow, re.MULTILINE)
+        self.assertTrue(references)
+        self.assertEqual(
+            set(references),
+            {
+                "${{ github.event_name == 'pull_request' && "
+                "github.event.pull_request.head.sha || github.sha }}"
+            },
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
