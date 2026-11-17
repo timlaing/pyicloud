@@ -295,3 +295,23 @@ test("release publication rejects PR-only, wrong-SHA, failed, and foreign Qualit
     "https://github.com/another/repo/actions/runs/900";
   await assert.rejects(check(), /in this repository/);
 });
+
+test("a queued CI run is present and must not time out or be approved again", async () => {
+  const f = fixture();
+  f.context.payload.pull_request = structuredClone(pr);
+  f.responses.permission = "write";
+  f.responses.runs = [
+    {
+      id: 123,
+      head_sha: sha,
+      path: ".github/workflows/ci.yml",
+      status: "queued",
+      conclusion: null,
+    },
+  ];
+  f.sleep = async () => {
+    throw new Error("Queued CI must not wait for approval");
+  };
+  await approve(f);
+  assert.equal(f.calls.filter(([name]) => name === "approveRun").length, 0);
+});
