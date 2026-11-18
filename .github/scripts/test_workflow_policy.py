@@ -57,6 +57,8 @@ class MigrationTests(unittest.TestCase):
             del body
             self.assertEqual(method, "GET")
             calls.append(path)
+            if path == "":
+                return {"default_branch": "main"}
             if path.startswith("rulesets?"):
                 return [{"id": 1, "source_type": "Repository", "enforcement": "active"}]
             return deepcopy(original)
@@ -84,7 +86,7 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(
             payload["rules"][-1]["parameters"]["required_status_checks"], expected
         )
-        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(calls), 3)
 
     def test_apply_rejects_a_policy_not_yet_on_main(self) -> None:
         """No write request is made when the deployed policy does not match."""
@@ -184,6 +186,7 @@ class ApplyTests(unittest.TestCase):
                     result["rules"][-1]["parameters"]["required_status_checks"] = []
                 return result
             return {
+                "": {"default_branch": "main"},
                 "actions/permissions/workflow": {
                     "can_approve_pull_request_reviews": False
                 },
@@ -252,7 +255,11 @@ class ApplyTests(unittest.TestCase):
     def test_no_active_main_ruleset_fails_closed(self) -> None:
         """The migration must not silently select unrelated protections."""
         with (
-            patch.object(POLICY, "api", return_value=[]),
+            patch.object(
+                POLICY,
+                "api",
+                side_effect=lambda path: {"default_branch": "main"} if not path else [],
+            ),
             self.assertRaisesRegex(SystemExit, "No active main-branch ruleset"),
         ):
             POLICY.main_ruleset()
@@ -443,6 +450,21 @@ class SelectionTests(unittest.TestCase):
             ruleset["conditions"]["ref_name"] = {"include": included, "exclude": []}
             self.assertFalse(POLICY.applies_to_main(ruleset))
 
+    def test_default_alias_tracks_the_actual_default_branch(self) -> None:
+        """A develop-default policy must never be rewritten as main protection."""
+        ruleset = {
+            "target": "branch",
+            "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}},
+        }
+        self.assertFalse(POLICY.applies_to_main(ruleset, "develop"))
+        self.assertTrue(POLICY.applies_to_main(ruleset, "main"))
+        ruleset["conditions"]["ref_name"] = {
+            "include": ["refs/heads/main"],
+            "exclude": ["~DEFAULT_BRANCH"],
+        }
+        self.assertTrue(POLICY.applies_to_main(ruleset, "develop"))
+        self.assertFalse(POLICY.applies_to_main(ruleset, "main"))
+
     def test_selects_applicable_ruleset_instead_of_excluded_one(self) -> None:
         """Ignore an earlier active ruleset even when it has check requirements."""
         details = {
@@ -469,6 +491,8 @@ class SelectionTests(unittest.TestCase):
         ]
 
         def api(path: str) -> object:
+            if path == "":
+                return {"default_branch": "main"}
             if path.startswith("rulesets?"):
                 return candidates
             return details[path]
