@@ -46,6 +46,7 @@ function fixture(event = "pull_request") {
         get: route("repository", {default_branch: "main"}),
         listPullRequestsAssociatedWithCommit: "associated",
         listCommitStatusesForRef: "statuses",
+        createCommitStatus: route("status", {}),
         getCollaboratorPermissionLevel: route("permission", () => ({
           permission: responses.permission,
         })),
@@ -401,4 +402,36 @@ test("retargeting away from main cannot trigger a review", async () => {
   f.responses.current.base.ref = "other";
   await assert.rejects(review(f), /closed or changed/);
   assert.equal(f.calls.filter(([name]) => name === "comment").length, 0);
+});
+
+test("review results from another producer are not excluded", async () => {
+  const f = fixture();
+  f.responses.checks.push({id: 17, name: "CodeRabbit review", app: {slug: "other"}, status: "completed", conclusion: "failure"});
+  await assert.rejects(review(f), /40 minutes/);
+  assert.equal(f.calls.filter(([name]) => name === "comment").length, 0);
+});
+test("merge-only commit failures block native review", async () => {
+  const f = fixture();
+  const mergeSha = "b".repeat(40);
+  f.responses.current.merge_commit_sha = mergeSha;
+  const paginate = f.github.paginate;
+  f.github.paginate = async (endpoint, args) => endpoint === "statuses" && args.ref === mergeSha
+    ? [{id: 20, context: "Merge analysis", creator: {login: "external"}, state: "failure"}]
+    : paginate(endpoint, args);
+  await assert.rejects(review(f), /40 minutes/);
+  assert.equal(f.calls.filter(([name]) => name === "comment").length, 0);
+});
+test("shared PR heads invalidate native Quality rather than reusing another PR's approval", async () => {
+  const f = fixture();
+  f.responses.associated.push({...structuredClone(pr), number: 43});
+  await assert.rejects(review(f), /exactly one/);
+  assert.ok(f.calls.some(([name, args]) => name === "status" && args.context === "Quality" && args.state === "failure"));
+});
+
+test("a native timeout cannot overwrite approval arriving during the final wait", async () => {
+  const f = fixture();
+  let sleeps = 0;
+  f.sleep = async () => {if (++sleeps === 40) f.responses.reviews = [{user: {login: "coderabbitai[bot]"}, commit_id: sha, state: "APPROVED"}];};
+  await review(f);
+  assert.equal(f.calls.filter(([name]) => name === "updateComment").length, 0);
 });

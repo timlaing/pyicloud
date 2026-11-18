@@ -15,7 +15,7 @@ run-name: Review notifier policy / ${{ github.event.pull_request.head.sha || inp
         type: string
 permissions: {}
 concurrency:
-  group: notifier-policy-${{ github.event_name == 'pull_request' && 'registration' || 'validation' }}-${{ github.event.pull_request.number || inputs.revision }}
+  group: notifier-policy-${{ github.event_name == 'pull_request' && 'registration' || 'validation' }}-${{ github.event.pull_request.head.sha || inputs.revision }}
   cancel-in-progress: true
 jobs:
   register:

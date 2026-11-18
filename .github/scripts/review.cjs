@@ -24,6 +24,13 @@ async function notifierProof(github, context, pull, statuses) {
 }
 const checkKey = check => `${check.app?.id ?? check.app?.slug ?? "unknown"}:${check.name}`;
 const statusKey = status => `${status.creator?.id ?? status.creator?.login ?? "unknown"}:${status.context}`;
+function reviewCheck(check) {
+  const producer = {CodeRabbit: "coderabbitai", "CodeRabbit review": "github-actions", "Quality result": "github-actions", "Re-evaluate CodeRabbit approval": "github-actions"}[check.name];
+  return producer !== undefined && check.app?.slug === producer;
+}
+function reviewStatus(status) {
+  return status.context === "Quality" && status.creator?.login === "github-actions[bot]";
+}
 /** Gate CodeRabbit on CI + Sonar, and require its approval for the exact PR head. */
 module.exports = async ({
   github,
@@ -50,6 +57,10 @@ module.exports = async ({
           (pr.head.sha === triggerSha || pr.merge_commit_sha === triggerSha)
         : pr.merged_at && pr.merge_commit_sha === triggerSha),
   );
+  if (pullRequestEvent && candidates.length > 1) {
+    for (const revision of new Set(candidates.map(item => item.head.sha)))
+      await github.rest.repos.createCommitStatus({owner, repo, sha: revision, context: "Quality", state: "failure", description: "Ambiguous PR head"});
+  }
   if (candidates.length !== 1)
     throw new Error(
       "Expected exactly one current PR or merged PR for the validated commit; direct pushes are not reviewed.",
@@ -90,7 +101,17 @@ module.exports = async ({
     throw new Error("PR closed or changed during review.");
   if (pr.draft)
     throw new Error("Draft PRs are not eligible for CodeRabbit review.");
+  const uniqueHead = async current => {
+    const associatedHead = await github.paginate(github.rest.repos.listPullRequestsAssociatedWithCommit,
+      {owner, repo, commit_sha: current.head.sha, per_page: 100});
+    const matches = associatedHead.filter(item => item.state === "open" && !item.draft && item.head.sha === current.head.sha && item.base.ref === "main" && item.base.repo.full_name === `${owner}/${repo}`);
+    if (matches.length === 1 && matches[0].number === current.number) return true;
+    await github.rest.repos.createCommitStatus({owner, repo, sha: current.head.sha, context: "Quality", state: "failure",
+      description: "Ambiguous PR head; use a unique revision per PR"});
+    return false;
+  };
   const validationPassed = async (current) => {
+    if (!(await uniqueHead(current))) return false;
     const refs = [
       ...new Set([current.merge_commit_sha, current.head.sha].filter(Boolean)),
     ];
@@ -110,30 +131,19 @@ module.exports = async ({
       ...groups[0],
       ...(groups[1] || []).filter((check) => !mergeNames.has(checkKey(check))),
     ];
-    const statuses = await github.paginate(
-      github.rest.repos.listCommitStatusesForRef,
-      {
-        owner,
-        repo,
-        ref: current.head.sha,
-        per_page: 100,
-      },
-    );
-    const excluded = new Set([
-      "Quality",
-      "CodeRabbit",
-      "CodeRabbit review",
-      "Quality result",
-      "Review passed",
-      "Re-evaluate CodeRabbit approval",
-    ]);
+    const statusGroups = await Promise.all(refs.map(ref => github.paginate(github.rest.repos.listCommitStatusesForRef,
+      {owner, repo, ref, per_page: 100})));
+    const headStatuses = statusGroups[refs.indexOf(current.head.sha)];
+    const names = new Set(statusGroups[0].map(statusKey));
+    const combined = [...statusGroups[0], ...(statusGroups[1] || []).filter(item => !names.has(statusKey(item)))];
+    const statuses = [...combined.filter(item => item.context !== "Review notifier policy"), ...headStatuses.filter(item => item.context === "Review notifier policy")];
     const latestChecks = new Map();
     for (const check of checks.sort((left, right) => left.id - right.id))
       latestChecks.set(checkKey(check), check);
     const latestStatuses = new Map();
     for (const status of statuses.sort((left, right) => left.id - right.id))
       latestStatuses.set(statusKey(status), status);
-    if (!(await notifierProof(github, context, current, statuses))) return false;
+    if (!(await notifierProof(github, context, current, headStatuses))) return false;
     const required = ["CI passed", "SonarCloud", "CodeQL", "Review notifier policy"];
     const passed = required.every((name) => {
       const expectedApp = ["CI passed", "Review notifier policy"].includes(name) ? "github-actions" : "github-advanced-security";
@@ -146,12 +156,12 @@ module.exports = async ({
       passed &&
       [...latestChecks.values()].every(
         (check) =>
-          excluded.has(check.name) ||
+          reviewCheck(check) ||
           (check.status === "completed" &&
             ["success", "skipped"].includes(check.conclusion)),
       ) &&
       [...latestStatuses.values()].every(
-        (status) => excluded.has(status.context) || status.state === "success",
+        (status) => reviewStatus(status) || status.state === "success",
       )
     );
   };
@@ -209,11 +219,21 @@ module.exports = async ({
     if (current.state !== "open" || current.draft || current.head.sha !== sha || current.base.ref !== "main" || current.base.repo.full_name !== `${owner}/${repo}`)
       throw new Error("PR closed or changed during review.");
     if (await validationPassed(current)) {
-      if (await approved()) return;
+      const approval = await approved();
+      const {data: final} = await github.rest.pulls.get({owner, repo, pull_number: pr.number});
+      if (final.head.sha !== sha || final.base.ref !== "main") throw new Error("PR closed or changed during review.");
+      if (final.merge_commit_sha !== current.merge_commit_sha) {await sleep(60000); continue;}
+      if (approval) return;
       if (!requested) await requestReview();
     }
     core.info(`Waiting for CodeRabbit approval of PR #${pr.number} at ${sha}`);
     await sleep(60000);
+  }
+  // Another trusted receiver may have observed approval during our final wait.
+  const {data: last} = await github.rest.pulls.get({owner, repo, pull_number: pr.number});
+  if (last.state === "open" && !last.draft && last.head.sha === sha && last.base.ref === "main" && await validationPassed(last) && await approved()) {
+    const {data: final} = await github.rest.pulls.get({owner, repo, pull_number: pr.number});
+    if (final.state === "open" && !final.draft && final.head.sha === sha && final.base.ref === "main" && final.merge_commit_sha === last.merge_commit_sha) return;
   }
   if (request?.id) {
     await github.rest.issues.updateComment({

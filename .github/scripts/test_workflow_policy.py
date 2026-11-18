@@ -97,7 +97,9 @@ class MigrationTests(unittest.TestCase):
             }
 
         with (
-            patch.object(sys, "argv", [__file__, "--apply"]),
+            patch.object(
+                sys, "argv", [__file__, "--apply", "--validated-head", "a" * 40]
+            ),
             patch.object(POLICY, "api", side_effect=api),
             patch.object(
                 Path, "read_text", return_value='{"required_checks":["Review passed"]}'
@@ -131,6 +133,26 @@ class ApplyTests(unittest.TestCase):
                 return {
                     "content": base64.b64encode(json.dumps(policy).encode()).decode()
                 }
+            if path.startswith("commits/"):
+                if "/check-runs?" in path:
+                    return {
+                        "total_count": len(policy["required_checks"]),
+                        "check_runs": [
+                            {
+                                "id": index,
+                                "name": name,
+                                "app": {"slug": "github-actions"},
+                                "status": "completed",
+                                "conclusion": "failure"
+                                if mismatch == "evidence"
+                                else "success",
+                            }
+                            for index, name in enumerate(policy["required_checks"])
+                        ],
+                    }
+                return []
+            if mismatch == "enable" and path.endswith("/enable"):
+                raise SystemExit("Workflow enablement failed")
             if path.startswith("rulesets?"):
                 return [
                     {"id": 2, "source_type": "Organization", "enforcement": "active"},
@@ -144,18 +166,21 @@ class ApplyTests(unittest.TestCase):
                 if mismatch == "checks" and len(calls) > 5:
                     result["rules"][-1]["parameters"]["required_status_checks"] = []
                 return result
-            if path == "actions/permissions/workflow":
-                return {"can_approve_pull_request_reviews": False}
-            if path == POLICY.ACTIONS_PERMISSIONS:
-                return {
+            return {
+                "actions/permissions/workflow": {
+                    "can_approve_pull_request_reviews": False
+                },
+                POLICY.ACTIONS_PERMISSIONS: {
                     "enabled": True,
                     "allowed_actions": "all",
                     "sha_pinning_required": mismatch != "sha",
-                }
-            return None
+                },
+            }.get(path)
 
         with (
-            patch.object(sys, "argv", [__file__, "--apply"]),
+            patch.object(
+                sys, "argv", [__file__, "--apply", "--validated-head", "a" * 40]
+            ),
             patch.object(POLICY, "api", side_effect=api),
             patch.object(Path, "read_text", return_value=json.dumps(policy)),
             redirect_stdout(io.StringIO()),
@@ -194,6 +219,18 @@ class ApplyTests(unittest.TestCase):
         for mismatch in ["checks", "sha"]:
             with self.subTest(mismatch=mismatch):
                 self.exercise_apply(mismatch)
+
+    def test_missing_hosted_proof_or_failed_enablement_never_writes_rules(self) -> None:
+        """Missing proof or enablement must leave existing rules intact."""
+        for mismatch in ["evidence", "enable"]:
+            with self.subTest(mismatch=mismatch):
+                calls = self.exercise_apply(mismatch)
+                self.assertFalse(
+                    any(
+                        path == "rulesets/1" and method == "PUT"
+                        for path, method, _ in calls
+                    )
+                )
 
     def test_no_active_main_ruleset_fails_closed(self) -> None:
         """The migration must not silently select unrelated protections."""
