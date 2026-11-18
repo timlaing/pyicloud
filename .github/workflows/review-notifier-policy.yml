@@ -1,5 +1,6 @@
 # cspell:ignore basehead
 name: Review notifier policy
+run-name: Review notifier policy / ${{ github.event.pull_request.head.sha || inputs.revision }}
 "on":
   pull_request:
     branches: [main]
@@ -43,6 +44,8 @@ jobs:
           REVISION: ${{ inputs.revision }}
         with:
           script: |
+            if (context.eventName === 'workflow_dispatch' && context.ref !== 'refs/heads/main' && context.actor !== context.repo.owner)
+              throw new Error('Only the repository owner may attest a reviewed feature-branch validator');
             const fs = require('node:fs/promises');
             const path = require('node:path');
             let number = context.payload.pull_request?.number;

@@ -1,3 +1,27 @@
+/** Verify the actual validator run; the shared Actions bot identity is insufficient. */
+async function notifierProof(github, context, pull, statuses) {
+  const status = statuses
+    .filter(item => item.context === "Review notifier policy" && item.creator?.login === "github-actions[bot]")
+    .sort((left, right) => right.id - left.id)[0];
+  if (status?.state !== "success") return false;
+  const prefix = `${context.serverUrl || "https://github.com"}/${context.repo.owner}/${context.repo.repo}/actions/runs/`;
+  if (!status.target_url?.startsWith(prefix)) return false;
+  const runId = status.target_url.slice(prefix.length);
+  if (!/^[1-9][0-9]*$/.test(runId)) return false;
+  const [{ data: run }, { data: workflow }, { data: repository }] = await Promise.all([
+    github.rest.actions.getWorkflowRun({ ...context.repo, run_id: runId }),
+    github.rest.actions.getWorkflow({ ...context.repo, workflow_id: "review-notifier-policy.yml" }),
+    github.rest.repos.get({ ...context.repo }),
+  ]);
+  if (run.workflow_id !== workflow.id || workflow.path !== ".github/workflows/review-notifier-policy.yml" ||
+      run.status !== "completed" || run.conclusion !== "success" ||
+      run.display_title !== `Review notifier policy / ${pull.head.sha}`) return false;
+  if (run.event === "pull_request_target") return true;
+  if (run.event !== "workflow_dispatch") return false;
+  if (run.head_branch === repository.default_branch) return true;
+  // Explicit owner-reviewed bootstrap/recovery: writer access alone never authorizes this.
+  return run.actor?.login === context.repo.owner && run.head_sha === pull.head.sha;
+}
 const checkKey = check => `${check.app?.id ?? check.app?.slug ?? "unknown"}:${check.name}`;
 const statusKey = status => `${status.creator?.id ?? status.creator?.login ?? "unknown"}:${status.context}`;
 /** Gate CodeRabbit on CI + Sonar, and require its approval for the exact PR head. */
@@ -109,6 +133,7 @@ module.exports = async ({
     const latestStatuses = new Map();
     for (const status of statuses.sort((left, right) => left.id - right.id))
       latestStatuses.set(statusKey(status), status);
+    if (!(await notifierProof(github, context, current, statuses))) return false;
     const required = ["CI passed", "SonarCloud", "CodeQL", "Review notifier policy"];
     const passed = required.every((name) => {
       const expectedApp = ["CI passed", "Review notifier policy"].includes(name) ? "github-actions" : "github-advanced-security";
@@ -162,7 +187,7 @@ module.exports = async ({
         repo,
         pull_number: pr.number,
       });
-      if (current.state !== "open" || current.head.sha !== sha)
+      if (current.state !== "open" || current.draft || current.head.sha !== sha || current.base.ref !== "main" || current.base.repo.full_name !== `${owner}/${repo}`)
         throw new Error("PR closed or changed during review.");
       const { data } = await github.rest.issues.createComment({
         owner,
@@ -181,7 +206,7 @@ module.exports = async ({
       repo,
       pull_number: pr.number,
     });
-    if (current.state !== "open" || current.head.sha !== sha)
+    if (current.state !== "open" || current.draft || current.head.sha !== sha || current.base.ref !== "main" || current.base.repo.full_name !== `${owner}/${repo}`)
       throw new Error("PR closed or changed during review.");
     if (await validationPassed(current)) {
       if (await approved()) return;
@@ -202,3 +227,5 @@ module.exports = async ({
     "CodeRabbit approval did not arrive within 40 minutes; rerun Quality after resolving review findings.",
   );
 };
+
+module.exports.notifierProof = notifierProof;

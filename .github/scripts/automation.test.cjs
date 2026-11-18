@@ -29,7 +29,7 @@ function fixture(event = "pull_request") {
       status: "completed",
       conclusion: "success",
     })),
-    statuses: [{id: 1, context: "Review notifier policy", creator: {login: "github-actions[bot]"}, state: "success"}, {id: 2, context: "Quality", creator: {login: "github-actions[bot]"}, state: "pending"}],
+    statuses: [{id: 1, context: "Review notifier policy", creator: {login: "github-actions[bot]"}, state: "success", target_url: "https://github.com/owner/repo/actions/runs/42"}, {id: 2, context: "Quality", creator: {login: "github-actions[bot]"}, state: "pending"}],
     comments: [],
     previous: [],
     runs: [],
@@ -43,6 +43,7 @@ function fixture(event = "pull_request") {
   const github = {
     rest: {
       repos: {
+        get: route("repository", {default_branch: "main"}),
         listPullRequestsAssociatedWithCommit: "associated",
         listCommitStatusesForRef: "statuses",
         getCollaboratorPermissionLevel: route("permission", () => ({
@@ -68,7 +69,8 @@ function fixture(event = "pull_request") {
       actions: {
         listWorkflowRunsForRepo: "runs",
         approveWorkflowRun: route("approveRun", {}),
-        getWorkflowRun: route("source", () => responses.ci),
+        getWorkflowRun: route("source", (args) => args.run_id === "42" ? {workflow_id: 17, status: "completed", conclusion: "success", display_title: `Review notifier policy / ${sha}`, event: "pull_request_target"} : responses.ci),
+        getWorkflow: route("notifierWorkflow", {id: 17, path: ".github/workflows/review-notifier-policy.yml"}),
       },
     },
     paginate: async (endpoint) => responses[endpoint],
@@ -391,5 +393,12 @@ test("the notifier policy needs its trusted commit status, not a PR CheckRun", a
   f.responses.statuses = [];
   f.responses.checks.push({id: 12, name: "Review notifier policy", app: {slug: "github-actions"}, status: "completed", conclusion: "success"});
   await assert.rejects(review(f), /40 minutes/);
+  assert.equal(f.calls.filter(([name]) => name === "comment").length, 0);
+});
+
+test("retargeting away from main cannot trigger a review", async () => {
+  const f = fixture();
+  f.responses.current.base.ref = "other";
+  await assert.rejects(review(f), /closed or changed/);
   assert.equal(f.calls.filter(([name]) => name === "comment").length, 0);
 });

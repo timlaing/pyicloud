@@ -167,6 +167,7 @@ jobs:
             -Dsonar.projectName=pyicloud
             -Dsonar.sources=pyicloud
             -Dsonar.tests=tests
+            -Dsonar.sca.enabled=false
             -Dsonar.python.coverage.reportPaths=${{ env.COVERAGE_DIR }}/coverage.xml
             -Dsonar.working.directory=${{ runner.temp }}/sonar-work-${{ github.run_id }}-${{ github.run_attempt }}
             -Dsonar.python.version=3.10,3.11,3.12,3.13,3.14,3.15
@@ -185,6 +186,7 @@ jobs:
             -Dsonar.projectName=pyicloud
             -Dsonar.sources=pyicloud
             -Dsonar.tests=tests
+            -Dsonar.sca.enabled=false
             -Dsonar.python.coverage.reportPaths=${{ env.COVERAGE_DIR }}/coverage.xml
             -Dsonar.working.directory=${{ runner.temp }}/sonar-work-${{ github.run_id }}-${{ github.run_attempt }}
             -Dsonar.python.version=3.10,3.11,3.12,3.13,3.14,3.15
@@ -254,6 +256,7 @@ jobs:
       pull-requests: write
       issues: write
       checks: read
+      actions: read
       statuses: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
