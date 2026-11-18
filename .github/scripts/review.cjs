@@ -7,7 +7,7 @@ async function notifierProof(github, context, pull, statuses) {
   const prefix = `${context.serverUrl || "https://github.com"}/${context.repo.owner}/${context.repo.repo}/actions/runs/`;
   if (!status.target_url?.startsWith(prefix)) return false;
   const runId = status.target_url.slice(prefix.length);
-  if (!/^[1-9][0-9]*$/.test(runId)) return false;
+  if (!/^[1-9]\d*$/.test(runId)) return false;
   const [{ data: run }, { data: workflow }, { data: repository }] = await Promise.all([
     github.rest.actions.getWorkflowRun({ ...context.repo, run_id: runId }),
     github.rest.actions.getWorkflow({ ...context.repo, workflow_id: "review-notifier-policy.yml" }),

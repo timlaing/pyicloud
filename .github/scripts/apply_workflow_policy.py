@@ -96,8 +96,30 @@ def main_ruleset() -> dict[str, Any]:
     )
 
 
+def reported_checks(
+    reported: dict[str, Any], statuses: list[dict[str, Any]]
+) -> dict[str, bool]:
+    """Read current results only from the expected producer and result type."""
+    checks = {}
+    for item in sorted(reported["check_runs"], key=lambda item: item["id"]):
+        if item.get("app", {}).get("slug") == "github-actions" and item["name"] not in {
+            "Review passed",
+            "Review notifier policy",
+            "Quality",
+        }:
+            checks[item["name"]] = (
+                item["status"] == "completed" and item["conclusion"] == "success"
+            )
+    for item in sorted(statuses, key=lambda item: item["id"]):
+        if item.get("creator", {}).get("login") == "github-actions[bot]":
+            checks[item["context"]] = item["state"] == "success"
+    return checks
+
+
 def validate_hosted_checks(policy: dict[str, Any], revision: str | None) -> None:
     """Require real replacement checks on the reviewed PR revision before activation."""
+    if not policy["required_checks"]:
+        raise SystemExit("Required check policy is empty")
     if revision is None or re.fullmatch(r"[a-f0-9]{40}", revision) is None:
         raise SystemExit("Provide --validated-head with the hosted PR head SHA")
     evidence = api(f"contents/{POLICY_PATH}?ref={revision}")
@@ -107,15 +129,7 @@ def validate_hosted_checks(policy: dict[str, Any], revision: str | None) -> None
     statuses = api(f"commits/{revision}/statuses?per_page=100")
     if reported["total_count"] > 100 or len(statuses) == 100:
         raise SystemExit("Hosted evidence requires pagination; inspect before applying")
-    checks = {}
-    for item in sorted(reported["check_runs"], key=lambda item: item["id"]):
-        if item.get("app", {}).get("slug") == "github-actions":
-            checks[item["name"]] = (
-                item["status"] == "completed" and item["conclusion"] == "success"
-            )
-    for item in sorted(statuses, key=lambda item: item["id"]):
-        if item.get("creator", {}).get("login") == "github-actions[bot]":
-            checks[item["context"]] = item["state"] == "success"
+    checks = reported_checks(reported, statuses)
     if not all(checks.get(name, False) for name in policy["required_checks"]):
         raise SystemExit(
             "Replacement checks have not succeeded on the hosted PR revision"

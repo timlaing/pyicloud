@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import Callable
 from contextlib import nullcontext, redirect_stdout
 from copy import deepcopy
 import importlib.util
@@ -10,6 +11,7 @@ import io
 import json
 from pathlib import Path
 import sys
+from typing import Any
 import unittest
 from unittest.mock import patch
 
@@ -148,9 +150,24 @@ class ApplyTests(unittest.TestCase):
                                 else "success",
                             }
                             for index, name in enumerate(policy["required_checks"])
+                            if name
+                            not in {
+                                "Review passed",
+                                "Review notifier policy",
+                                "Quality",
+                            }
                         ],
                     }
-                return []
+                return [
+                    {
+                        "id": index,
+                        "context": name,
+                        "creator": {"login": "github-actions[bot]"},
+                        "state": "success",
+                    }
+                    for index, name in enumerate(policy["required_checks"])
+                    if name in {"Review passed", "Review notifier policy", "Quality"}
+                ]
             if mismatch == "enable" and path.endswith("/enable"):
                 raise SystemExit("Workflow enablement failed")
             if path.startswith("rulesets?"):
@@ -260,6 +277,137 @@ class ApplyTests(unittest.TestCase):
             )
             response.stdout = ""
             self.assertIsNone(POLICY.api("automated-security-fixes", "PUT"))
+
+
+class EvidenceTests(unittest.TestCase):
+    """Activation accepts real hosted evidence, never a same-named substitute."""
+
+    def test_empty_policy_cannot_disable_required_checks(self) -> None:
+        """An empty replacement cannot activate through vacuous success."""
+        with (
+            patch.object(POLICY, "api") as request,
+            self.assertRaisesRegex(SystemExit, "empty"),
+        ):
+            POLICY.validate_hosted_checks({"required_checks": []}, "a" * 40)
+        request.assert_not_called()
+
+    def test_hosted_evidence_validates_revision_policy_producer_and_result_type(
+        self,
+    ) -> None:
+        """Execute the real evidence guard across valid and incomplete reports."""
+        policy = {
+            "required_checks": [
+                "Validate ci",
+                "Review passed",
+                "Review notifier policy",
+            ]
+        }
+        baseline: dict[str, Any] = {
+            "policy": deepcopy(policy),
+            "reported": {
+                "total_count": 1,
+                "check_runs": [
+                    {
+                        "id": 1,
+                        "name": "Validate ci",
+                        "app": {"slug": "github-actions"},
+                        "status": "completed",
+                        "conclusion": "success",
+                    }
+                ],
+            },
+            "statuses": [
+                {
+                    "id": index,
+                    "context": name,
+                    "creator": {"login": "github-actions[bot]"},
+                    "state": "success",
+                }
+                for index, name in enumerate(policy["required_checks"][1:])
+            ],
+        }
+        cases: list[tuple[str, str | None, Callable[[dict[str, Any]], object]]] = [
+            ("valid", "a" * 40, lambda _data: None),
+            ("missing revision", None, lambda _data: None),
+            ("invalid revision", "invalid", lambda _data: None),
+            ("wrong policy", "a" * 40, lambda data: data["policy"].clear()),
+            (
+                "pagination",
+                "a" * 40,
+                lambda data: data["reported"].update(total_count=101),
+            ),
+            (
+                "foreign check",
+                "a" * 40,
+                lambda data: data["reported"]["check_runs"][0]["app"].update(
+                    slug="other"
+                ),
+            ),
+            (
+                "skipped check",
+                "a" * 40,
+                lambda data: data["reported"]["check_runs"][0].update(
+                    conclusion="skipped"
+                ),
+            ),
+            ("missing status", "a" * 40, lambda data: data["statuses"].pop()),
+            (
+                "foreign status",
+                "a" * 40,
+                lambda data: data["statuses"][0]["creator"].update(login="other"),
+            ),
+            (
+                "failed status",
+                "a" * 40,
+                lambda data: data["statuses"][0].update(state="failure"),
+            ),
+            (
+                "status type",
+                "a" * 40,
+                lambda data: (
+                    data["statuses"].pop(),
+                    data["reported"]["check_runs"].append({
+                        "id": 2,
+                        "name": "Review notifier policy",
+                        "app": {"slug": "github-actions"},
+                        "status": "completed",
+                        "conclusion": "success",
+                    }),
+                ),
+            ),
+        ]
+
+        def fake_api(payload: dict[str, Any]) -> Callable[..., object]:
+            """Bind each response snapshot independently."""
+
+            def api(path: str, method: str = "GET", body: object = None) -> object:
+                del body
+                self.assertEqual(method, "GET")
+                if path.startswith("contents/"):
+                    return {
+                        "content": base64.b64encode(
+                            json.dumps(payload["policy"]).encode()
+                        ).decode()
+                    }
+                if "/check-runs?" in path:
+                    return payload["reported"]
+                return payload["statuses"]
+
+            return api
+
+        for label, revision, mutate in cases:
+            data = deepcopy(baseline)
+            mutate(data)
+
+            with (
+                self.subTest(case=label),
+                patch.object(POLICY, "api", side_effect=fake_api(data)),
+            ):
+                expected = (
+                    nullcontext() if label == "valid" else self.assertRaises(SystemExit)
+                )
+                with expected:
+                    POLICY.validate_hosted_checks(policy, revision)
 
 
 class SelectionTests(unittest.TestCase):
