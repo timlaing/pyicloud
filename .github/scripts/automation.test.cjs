@@ -19,6 +19,17 @@ function fixture(event = "pull_request") {
   const responses = {
     associated: [structuredClone(pr)],
     reviews: [],
+    checks: ["CI passed", "SonarCloud", "CodeQL"].map((name, id) => ({
+      id,
+      name,
+      app: {
+        slug:
+          name === "CI passed" ? "github-actions" : "github-advanced-security",
+      },
+      status: "completed",
+      conclusion: "success",
+    })),
+    statuses: [{id: 1, context: "Review notifier policy", creator: {login: "github-actions[bot]"}, state: "success", target_url: "https://github.com/owner/repo/actions/runs/42"}, {id: 2, context: "Quality", creator: {login: "github-actions[bot]"}, state: "pending"}],
     comments: [],
     previous: [],
     runs: [],
@@ -32,11 +43,15 @@ function fixture(event = "pull_request") {
   const github = {
     rest: {
       repos: {
+        get: route("repository", {default_branch: "main"}),
         listPullRequestsAssociatedWithCommit: "associated",
+        listCommitStatusesForRef: "statuses",
+        createCommitStatus: route("status", {}),
         getCollaboratorPermissionLevel: route("permission", () => ({
           permission: responses.permission,
         })),
       },
+      checks: { listForRef: "checks" },
       pulls: {
         get: route("get", () => responses.current),
         listReviews: "reviews",
@@ -55,7 +70,8 @@ function fixture(event = "pull_request") {
       actions: {
         listWorkflowRunsForRepo: "runs",
         approveWorkflowRun: route("approveRun", {}),
-        getWorkflowRun: route("source", () => responses.ci),
+        getWorkflowRun: route("source", (args) => args.run_id === "42" ? {workflow_id: 17, status: "completed", conclusion: "success", display_title: `Review notifier policy / ${sha}`, event: "pull_request_target"} : responses.ci),
+        getWorkflow: route("notifierWorkflow", {id: 17, path: ".github/workflows/review-notifier-policy.yml"}),
       },
     },
     paginate: async (endpoint) => responses[endpoint],
@@ -314,4 +330,108 @@ test("a queued CI run is present and must not time out or be approved again", as
   };
   await approve(f);
   assert.equal(f.calls.filter(([name]) => name === "approveRun").length, 0);
+});
+
+test("CodeRabbit cannot start before all reported checks succeed", async () => {
+  for (const state of ["pending", "failure", "error"]) {
+    const f = fixture();
+    f.responses.statuses.push({
+      id: 99,
+      context: "External documentation",
+      state,
+    });
+    await assert.rejects(review(f), /40 minutes/);
+    assert.equal(f.calls.filter(([name]) => name === "comment").length, 0);
+  }
+  const f = fixture();
+  f.responses.statuses.push({
+    id: 99,
+    context: "External documentation",
+    state: "pending",
+  });
+  f.sleep = async () => {
+    f.responses.statuses.at(-1).state = "success";
+    if (f.calls.some(([name]) => name === "comment"))
+      f.responses.reviews = [
+        {
+          user: { login: "coderabbitai[bot]" },
+          commit_id: sha,
+          state: "APPROVED",
+        },
+      ];
+  };
+  await review(f);
+  assert.equal(f.calls.filter(([name]) => name === "comment").length, 1);
+});
+
+test("review dismissal notifications withdraw Quality until current-head approval returns", async () => {
+  const f = fixture("pull_request_review");
+  f.responses.reviews = [
+    {
+      user: { login: "coderabbitai[bot]" },
+      commit_id: sha,
+      state: "DISMISSED",
+    },
+  ];
+  await assert.rejects(review(f), /40 minutes/);
+  f.responses.reviews.push({
+    user: { login: "coderabbitai[bot]" },
+    commit_id: sha,
+    state: "APPROVED",
+  });
+  await review(f);
+});
+
+test("same-named checks from another App cannot hide validation failure", async () => {
+  const f = fixture();
+  f.responses.checks.push({id: 10, name: "External security", app: {slug: "trusted"}, status: "completed", conclusion: "failure"});
+  f.responses.checks.push({id: 11, name: "External security", app: {slug: "other"}, status: "completed", conclusion: "success"});
+  await assert.rejects(review(f), /40 minutes/);
+  assert.equal(f.calls.filter(([name]) => name === "comment").length, 0);
+});
+test("the notifier policy needs its trusted commit status, not a PR CheckRun", async () => {
+  const f = fixture();
+  f.responses.statuses = [];
+  f.responses.checks.push({id: 12, name: "Review notifier policy", app: {slug: "github-actions"}, status: "completed", conclusion: "success"});
+  await assert.rejects(review(f), /40 minutes/);
+  assert.equal(f.calls.filter(([name]) => name === "comment").length, 0);
+});
+
+test("retargeting away from main cannot trigger a review", async () => {
+  const f = fixture();
+  f.responses.current.base.ref = "other";
+  await assert.rejects(review(f), /closed or changed/);
+  assert.equal(f.calls.filter(([name]) => name === "comment").length, 0);
+});
+
+test("review results from another producer are not excluded", async () => {
+  const f = fixture();
+  f.responses.checks.push({id: 17, name: "CodeRabbit review", app: {slug: "other"}, status: "completed", conclusion: "failure"});
+  await assert.rejects(review(f), /40 minutes/);
+  assert.equal(f.calls.filter(([name]) => name === "comment").length, 0);
+});
+test("merge-only commit failures block native review", async () => {
+  const f = fixture();
+  const mergeSha = "b".repeat(40);
+  f.responses.current.merge_commit_sha = mergeSha;
+  const paginate = f.github.paginate;
+  f.github.paginate = async (endpoint, args) => endpoint === "statuses" && args.ref === mergeSha
+    ? [{id: 20, context: "Merge analysis", creator: {login: "external"}, state: "failure"}]
+    : paginate(endpoint, args);
+  await assert.rejects(review(f), /40 minutes/);
+  assert.equal(f.calls.filter(([name]) => name === "comment").length, 0);
+});
+test("shared PR heads invalidate native Quality rather than reusing another PR's approval", async () => {
+  const f = fixture();
+  f.responses.associated.push({...structuredClone(pr), number: 43});
+  await assert.rejects(review(f), /exactly one/);
+  assert.ok(f.calls.some(([name, args]) => name === "status" && args.context === "Quality" && args.state === "failure"));
+});
+
+test("a native timeout cannot overwrite approval arriving during the final wait", async () => {
+  const f = fixture();
+  let sleeps = 0;
+  f.sleep = async () => {if (++sleeps === 40) f.responses.reviews = [{user: {login: "coderabbitai[bot]"}, commit_id: sha, state: "APPROVED"}];};
+  await review(f);
+  assert.equal(f.calls.filter(([name]) => name === "updateComment").length, 0);
 });

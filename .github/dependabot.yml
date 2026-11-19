@@ -15,6 +15,9 @@ updates:
       - devcontainers
   - package-ecosystem: "pip"
     directory: "/"
+    # Minimum-runtime pins track declared lower bounds, not newest dependency releases.
+    exclude-paths:
+      - "requirements_min.txt"
     versioning-strategy: "increase-if-necessary"
     schedule:
       interval: weekly

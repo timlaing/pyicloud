@@ -1,0 +1,242 @@
+# cspell:ignore basehead
+name: Review notifier policy
+run-name: Review notifier policy / ${{ github.event.pull_request.head.sha || inputs.revision }}
+"on":
+  pull_request:
+    branches: [main]
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Current PR head SHA to validate
+        required: true
+        type: string
+permissions: {}
+concurrency:
+  group: notifier-policy-${{ github.event_name == 'pull_request' && 'registration' || 'validation' }}-${{ github.event.pull_request.head.sha || inputs.revision }}
+  cancel-in-progress: true
+jobs:
+  register:
+    name: Register trusted policy workflow
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - run: "true"
+  validate:
+    if: github.event_name != 'pull_request'
+    name: Inspect review event policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+    env:
+      PROTECTED_PATHS: '[".github/workflows/review-notifier-policy.yml", ".github/workflows/sonar.yml", ".github/workflows/review-status.yml", ".github/scripts/review.cjs"]'
+    steps:
+      - name: Read policy files as data
+        id: metadata
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          REVISION: ${{ inputs.revision }}
+        with:
+          script: |
+            if (context.eventName === 'workflow_dispatch' && context.ref !== 'refs/heads/main' && context.actor !== context.repo.owner)
+              throw new Error('Only the repository owner may attest a reviewed feature-branch validator');
+            const fs = require('node:fs/promises');
+            const path = require('node:path');
+            let number = context.payload.pull_request?.number;
+            const revision = context.payload.pull_request?.head.sha || process.env.REVISION;
+            if (!/^[0-9a-f]{40}$/.test(revision || '')) throw new Error('A full revision is required');
+            if (!number) {
+              const associated = await github.paginate(github.rest.repos.listPullRequestsAssociatedWithCommit, {
+                ...context.repo, commit_sha: revision, per_page: 100
+              });
+              const matches = associated.filter(pr => pr.state === 'open' && pr.base.ref === 'main' &&
+                pr.base.repo.full_name === context.repo.owner + '/' + context.repo.repo && pr.head.sha === revision);
+              if (matches.length !== 1) throw new Error('Expected one current main PR');
+              number = matches[0].number;
+            }
+            const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: number });
+            if (pr.state !== 'open' || pr.base.ref !== 'main' ||
+                pr.base.repo.full_name !== context.repo.owner + '/' + context.repo.repo || pr.head.sha !== revision)
+              throw new Error('PR revision changed');
+            core.setOutput('sha', revision);
+            await github.rest.repos.createCommitStatus({
+              ...context.repo, sha: revision, context: 'Review notifier policy', state: 'pending',
+              description: 'Checking trusted review notification policy'
+            });
+            const directory = await fs.mkdtemp(path.join(process.env.RUNNER_TEMP, 'review-policy-'));
+            await fs.appendFile(process.env.GITHUB_ENV, 'REVIEW_POLICY_INPUTS=' + directory + '\n');
+            const { TextDecoder } = require('node:util');
+            const decoder = new TextDecoder('utf-8', { fatal: true });
+            const trees = new Map();
+            const roots = new Map();
+            const tree = async (repository, sha) => {
+              const key = repository.owner + '/' + repository.repo + ':' + sha;
+              if (!trees.has(key)) {
+                const { data } = await github.rest.git.getTree({ ...repository, tree_sha: sha });
+                trees.set(key, data.tree);
+              }
+              return trees.get(key);
+            };
+            const read = async (repository, sha, relative) => {
+              const key = repository.owner + '/' + repository.repo + ':' + sha;
+              if (!roots.has(key)) {
+                const { data } = await github.rest.git.getCommit({ ...repository, commit_sha: sha });
+                roots.set(key, data.tree.sha);
+              }
+              let treeSha = roots.get(key);
+              const components = relative.split('/');
+              for (const component of components.slice(0, -1)) {
+                const entries = await tree(repository, treeSha);
+                const entry = entries.find(item => item.path === component && item.mode === '040000');
+                if (!entry) throw new Error('Policy directories must be regular Git trees');
+                treeSha = entry.sha;
+              }
+              const entries = await tree(repository, treeSha);
+              const entry = entries.find(item => item.path === components.at(-1) && item.mode === '100644');
+              if (!entry) throw new Error('Policy files must be regular non-executable files');
+              const { data } = await github.rest.repos.getContent({ ...repository, path: relative, ref: sha });
+              if (data.type !== 'file' || data.encoding !== 'base64' || data.sha !== entry.sha)
+                throw new Error('Policy content does not match the immutable Git tree');
+              const content = Buffer.from(data.content, 'base64');
+              if (content.length > 65536) throw new Error('Policy file exceeds size limit');
+              return decoder.decode(content);
+            };
+            const headRepository = { owner: pr.head.repo.owner.login, repo: pr.head.repo.name };
+            await fs.writeFile(path.join(directory, 'notifier.yml'),
+              await read(headRepository, revision, '.github/workflows/review-events.yml'), { flag: 'wx' });
+            const protectedFiles = {};
+            for (const relative of JSON.parse(process.env.PROTECTED_PATHS)) {
+              protectedFiles[relative] = {
+                candidate: await read(headRepository, revision, relative),
+                trusted: await read(context.repo, context.sha, relative)
+              };
+            }
+            await fs.writeFile(path.join(directory, 'protected.json'), JSON.stringify(protectedFiles), { flag: 'wx' });
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.14"
+      - name: Install trusted YAML parser
+        run: |
+          python3 -m pip install --only-binary=:all: PyYAML==6.0.3
+      - name: Validate notification and enforcement policy
+        id: validate
+        if: steps.metadata.outputs.sha != ''
+        run: |
+          python3 -I - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import yaml
+
+          class UniqueLoader(yaml.BaseLoader):
+              def compose_node(self, parent, index):
+                  if self.check_event(yaml.AliasEvent):
+                      raise ValueError("Policy aliases are not allowed")
+                  return super().compose_node(parent, index)
+
+              def construct_mapping(self, node, deep=False):
+                  result = {}
+                  for key_node, value_node in node.value:
+                      key = self.construct_object(key_node, deep=deep)
+                      if not isinstance(key, str) or key in result:
+                          raise ValueError('Duplicate or non-scalar policy key')
+                      result[key] = self.construct_object(value_node, deep=deep)
+                  return result
+
+          directory = Path(os.environ['REVIEW_POLICY_INPUTS'])
+          def load(name):
+              path = directory / name
+              if path.is_symlink() or not path.is_file() or path.stat().st_size > 65536:
+                  raise ValueError('Invalid policy input')
+              return yaml.load(path.read_text(), Loader=UniqueLoader)
+
+          expected = {
+              'name': 'Review events',
+              'on': {
+                  'pull_request_review': {'types': ['submitted', 'dismissed']},
+                  'pull_request': {'types': ['ready_for_review']},
+              },
+              'permissions': {},
+              'jobs': {'notify': {
+                  'name': 'Review event notification',
+                  'runs-on': 'ubuntu-latest',
+                  'timeout-minutes': '2',
+                  'steps': [{'run': 'true'}],
+              }},
+          }
+          if load('notifier.yml') != expected:
+              raise ValueError('Review notification triggers and metadata-only job must remain intact')
+
+          def normalize(value, references):
+              if isinstance(value, list):
+                  return [normalize(item, references) for item in value]
+              if not isinstance(value, dict):
+                  return value
+              result = {}
+              for key, item in value.items():
+                  if key == 'uses':
+                      match = re.fullmatch(r'([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)((?:/[A-Za-z0-9_.-]+)*)@([a-f0-9]{40})', item)
+                      if match is None:
+                          raise ValueError('Enforcement actions must remain SHA-pinned')
+                      references.add((match[1], match[3]))
+                      result[key] = match[1] + match[2] + '@PIN'
+                  else:
+                      result[key] = normalize(item, references)
+              return result
+
+          candidate_refs = set()
+          trusted_refs = set()
+          protected = json.loads((directory / 'protected.json').read_text())
+          for relative, content in protected.items():
+              if relative.endswith('.yml'):
+                  candidate = normalize(yaml.load(content['candidate'], Loader=UniqueLoader), candidate_refs)
+                  trusted = normalize(yaml.load(content['trusted'], Loader=UniqueLoader), trusted_refs)
+              else:
+                  candidate = content['candidate']
+                  trusted = content['trusted']
+              if candidate != trusted:
+                  raise ValueError('Trusted review enforcement files cannot be removed or weakened by a PR')
+          changed = [{'repository': repo, 'sha': sha} for repo, sha in sorted(candidate_refs - trusted_refs)]
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:
+              stream.write('changed-actions=' + json.dumps(changed) + '\n')
+          PY
+      - name: Verify trusted action updates
+        id: actions
+        if: steps.validate.outcome == 'success'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          CHANGED_ACTIONS: ${{ steps.validate.outputs.changed-actions }}
+        with:
+          script: |
+            for (const update of JSON.parse(process.env.CHANGED_ACTIONS)) {
+              const [owner, repo] = update.repository.split('/');
+              const { data: repository } = await github.rest.repos.get({ owner, repo });
+              const { data: comparison } = await github.rest.repos.compareCommitsWithBasehead({
+                owner, repo, basehead: update.sha + '...' + repository.default_branch
+              });
+              if (['ahead', 'identical'].includes(comparison.status)) continue;
+              const tags = await github.paginate(github.rest.repos.listTags, { owner, repo, per_page: 100 });
+              if (!tags.some(tag => tag.commit.sha === update.sha))
+                throw new Error('Action update must belong to its official default branch or release tags');
+            }
+      - name: Publish policy result
+        if: always() && steps.metadata.outputs.sha != ''
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          REVISION: ${{ steps.metadata.outputs.sha }}
+          PASSED: ${{ steps.validate.outcome == 'success' && steps.actions.outcome == 'success' }}
+        with:
+          script: |
+            await github.rest.repos.createCommitStatus({
+              ...context.repo, sha: process.env.REVISION, context: 'Review notifier policy',
+              state: process.env.PASSED === 'true' ? 'success' : 'failure',
+              description: 'Trusted review notification policy must remain intact',
+              target_url: context.serverUrl + '/' + context.repo.owner + '/' + context.repo.repo + '/actions/runs/' + context.runId
+            });

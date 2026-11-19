@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   sonarqube:
-    if: github.event.workflow_run.conclusion == 'success' && contains(fromJSON('["push", "pull_request"]'), github.event.workflow_run.event)
+    if: github.event.workflow_run.path == '.github/workflows/ci.yml' && github.event.workflow_run.conclusion == 'success' && contains(fromJSON('["push", "pull_request"]'), github.event.workflow_run.event)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
@@ -167,6 +167,7 @@ jobs:
             -Dsonar.projectName=pyicloud
             -Dsonar.sources=pyicloud
             -Dsonar.tests=tests
+            -Dsonar.sca.enabled=false
             -Dsonar.python.coverage.reportPaths=${{ env.COVERAGE_DIR }}/coverage.xml
             -Dsonar.working.directory=${{ runner.temp }}/sonar-work-${{ github.run_id }}-${{ github.run_attempt }}
             -Dsonar.python.version=3.10,3.11,3.12,3.13,3.14,3.15
@@ -185,6 +186,7 @@ jobs:
             -Dsonar.projectName=pyicloud
             -Dsonar.sources=pyicloud
             -Dsonar.tests=tests
+            -Dsonar.sca.enabled=false
             -Dsonar.python.coverage.reportPaths=${{ env.COVERAGE_DIR }}/coverage.xml
             -Dsonar.working.directory=${{ runner.temp }}/sonar-work-${{ github.run_id }}-${{ github.run_attempt }}
             -Dsonar.python.version=3.10,3.11,3.12,3.13,3.14,3.15
@@ -209,7 +211,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [actions, python]
+        language: [actions, python, javascript-typescript]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -253,6 +255,9 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
+      checks: read
+      actions: read
+      statuses: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -267,7 +272,7 @@ jobs:
   result:
     name: Quality result
     needs: [sonarqube, codeql, review]
-    if: always() && github.event.workflow_run.conclusion == 'success' && contains(fromJSON('["push", "pull_request"]'), github.event.workflow_run.event)
+    if: always() && github.event.workflow_run.path == '.github/workflows/ci.yml' && github.event.workflow_run.conclusion == 'success' && contains(fromJSON('["push", "pull_request"]'), github.event.workflow_run.event)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
