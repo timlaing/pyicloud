@@ -109,12 +109,15 @@ def reported_checks(
             "Review passed",
             "Review notifier policy",
             "Quality",
+            "Analysis passed",
         }:
             checks[item["name"]] = (
                 item["status"] == "completed" and item["conclusion"] == "success"
             )
     for item in sorted(statuses, key=lambda item: item["id"]):
-        if item.get("creator", {}).get("login") == "github-actions[bot]":
+        if item.get("creator", {}).get("login") == "github-actions[bot]" and item[
+            "context"
+        ] in {"Review passed", "Review notifier policy", "Quality", "Analysis passed"}:
             checks[item["context"]] = item["state"] == "success"
     return checks
 
@@ -149,12 +152,18 @@ def main() -> None:
     )
     args = parser.parse_args()
     policy = json.loads(Path(POLICY_PATH).read_text(encoding="utf-8"))
+    if args.apply and (
+        args.validated_head is None
+        or re.fullmatch(r"[a-f0-9]{40}", args.validated_head) is None
+    ):
+        raise SystemExit("Provide --validated-head with the hosted PR head SHA")
     if args.apply:
         remote = api(f"contents/{POLICY_PATH}?ref=main")
         deployed = json.loads(base64.b64decode(remote["content"]))
         if deployed != policy:
             raise SystemExit("The reviewed policy must be merged into main first")
     selected = main_ruleset()
+    original = json.loads(json.dumps(selected))
     payload = {
         key: selected[key]
         for key in [
@@ -203,6 +212,11 @@ def main() -> None:
     ]:
         api(f"actions/workflows/{workflow}/enable", "PUT")
     validate_hosted_checks(policy, args.validated_head)
+    latest = api(f"rulesets/{selected['id']}")
+    if any(latest.get(key) != original.get(key) for key in payload):
+        raise SystemExit(
+            "Ruleset changed during validation; serialise settings changes and retry"
+        )
     api(f"rulesets/{selected['id']}", "PUT", payload)
     current = api(ACTIONS_PERMISSIONS)
     api(

@@ -182,7 +182,17 @@ class ApplyTests(unittest.TestCase):
                 if method == "PUT":
                     ruleset.update(deepcopy(body))
                 result = deepcopy(ruleset)
-                if mismatch == "checks" and len(calls) > 5:
+                if (
+                    mismatch == "stale"
+                    and sum(path == "rulesets/1" for path, _, _ in calls) > 1
+                ):
+                    result["bypass_actors"] = [
+                        {"actor_id": 7, "actor_type": "RepositoryRole"}
+                    ]
+                if mismatch == "checks" and any(
+                    method == "PUT" and path == "rulesets/1"
+                    for path, method, _ in calls
+                ):
                     result["rules"][-1]["parameters"]["required_status_checks"] = []
                 return result
             return {
@@ -242,7 +252,7 @@ class ApplyTests(unittest.TestCase):
 
     def test_missing_hosted_proof_or_failed_enablement_never_writes_rules(self) -> None:
         """Missing proof or enablement must leave existing rules intact."""
-        for mismatch in ["evidence", "enable"]:
+        for mismatch in ["evidence", "enable", "stale"]:
             with self.subTest(mismatch=mismatch):
                 calls = self.exercise_apply(mismatch)
                 self.assertFalse(
@@ -288,6 +298,43 @@ class ApplyTests(unittest.TestCase):
 
 class EvidenceTests(unittest.TestCase):
     """Activation accepts real hosted evidence, never a same-named substitute."""
+
+    def test_invalid_revision_never_starts_settings_writes(self) -> None:
+        """Reject absent and malformed revision input before touching GitHub."""
+        for value in [None, "not-a-revision"]:
+            args = [__file__, "--apply"] + (
+                ["--validated-head", value] if value else []
+            )
+            with (
+                patch.object(sys, "argv", args),
+                patch.object(POLICY, "api") as request,
+            ):
+                with self.assertRaisesRegex(SystemExit, "validated-head"):
+                    POLICY.main()
+                request.assert_not_called()
+
+    def test_status_cannot_hide_failed_validation_job(self) -> None:
+        """Even an Actions-authored same-name status cannot mask the actual job."""
+        reported = {
+            "check_runs": [
+                {
+                    "id": 1,
+                    "name": "Validate ci",
+                    "app": {"slug": "github-actions"},
+                    "status": "completed",
+                    "conclusion": "failure",
+                }
+            ]
+        }
+        statuses = [
+            {
+                "id": 2,
+                "context": "Validate ci",
+                "creator": {"login": "github-actions[bot]"},
+                "state": "success",
+            }
+        ]
+        self.assertFalse(POLICY.reported_checks(reported, statuses)["Validate ci"])
 
     def test_empty_policy_cannot_disable_required_checks(self) -> None:
         """An empty replacement cannot activate through vacuous success."""

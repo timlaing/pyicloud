@@ -11,3 +11,5 @@ Privileged Sonar workers perform static source/report analysis only, with `sonar
 Settings activation enables replacement workflows first, then verifies successful hosted replacement checks on the explicit reviewed PR head before writing required-check rules. Keep existing protection until that proof exists; failed enablement or missing proof leaves the rules unchanged.
 
 The repository owner bootstraps or recovers the notifier by inspecting the exact revision and dispatching `review-notifier-policy.yml` on that reviewed branch with its full `revision`. Current-head status acceptance verifies the actual successful workflow run and owner attestation. After the other checks succeed, a maintainer can request the CodeRabbit review; no new token is needed for this rollout.
+
+During activation, serialize repository-settings changes: run one activation at a time and do not edit rulesets concurrently. The updater re-reads protections immediately before writing and aborts if they changed during hosted validation.
