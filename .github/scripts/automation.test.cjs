@@ -458,17 +458,22 @@ test("observer publishes Quality transitions and reaches the worker", async () =
     return async () => { reached++; };
   };
   const processStub = {env: {HEAD: sha}};
-  await runObserver(f.github, context, f.core, load, processStub);
+  const outputs = {};
+  const coreStub = {
+    info() {}, error() {},
+    setOutput(key, value) { outputs[key] = value; },
+  };
+  await runObserver(f.github, context, coreStub, load, processStub);
   assert.equal(reached, 1);
-  const states = f.calls.filter(([name]) => name === "status").map(([, args]) => args.state);
-  assert.deepEqual(states, ["success"]);
-  assert.match(observerText, /state: 'pending'/);
+  assert.equal(outputs.result, "success");
 
-  f.calls.length = 0;
-  await assert.rejects(
-    runObserver(f.github, context, f.core, () => async () => { throw new Error("approval withdrawn"); }, processStub),
-    /approval withdrawn/,
+  await runObserver(
+    f.github, context, coreStub,
+    () => async () => { throw new Error("approval withdrawn"); },
+    processStub,
   );
-  const failed = f.calls.filter(([name]) => name === "status").map(([, args]) => args.state);
-  assert.deepEqual(failed, ["failure"]);
+  assert.equal(outputs.result, "failure");
+  // Pending is published before checkout; the long wait holds no shared group.
+  assert.match(observerText, /state: 'pending'/);
+  assert.match(observerText, /group: quality-/);
 });

@@ -15,6 +15,12 @@ from typing import Any
 REPOSITORY = "timlaing/pyicloud"
 POLICY_PATH = ".github/workflow-policy.json"
 ACTIONS_PERMISSIONS = "actions/permissions"
+TRUSTED_STATUS_WORKFLOWS = {
+    ".github/workflows/ci.yml",
+    ".github/workflows/sonar.yml",
+    ".github/workflows/review-notifier-policy.yml",
+    ".github/workflows/review-status.yml",
+}
 
 
 def api(path: str, method: str = "GET", body: dict[str, Any] | None = None) -> Any:
@@ -136,6 +142,39 @@ def reported_checks(
     return checks
 
 
+def status_provenance_valid(status: dict[str, Any], revision: str) -> bool:
+    """Require a trusted workflow run as the source of an accepted status."""
+    prefix = f"https://github.com/{REPOSITORY}/actions/runs/"
+    target = status.get("target_url") or ""
+    if not target.startswith(prefix):
+        return False
+    run_id = target[len(prefix) :]
+    if not run_id.isdigit():
+        return False
+    run = api(f"actions/runs/{run_id}")
+    workflow = api(f"actions/workflows/{run['workflow_id']}")
+    if workflow["path"] not in TRUSTED_STATUS_WORKFLOWS:
+        return False
+    if run["status"] != "completed" or run["conclusion"] != "success":
+        return False
+    # The run must belong to the reviewed revision or one of its PR refs.
+    return run.get("head_sha") in {revision, status.get("sha", revision)}
+
+
+def validate_status_provenance(
+    statuses: list[dict[str, Any]], checks: dict[str, bool], revision: str
+) -> None:
+    """Reject trusted-context statuses without a verified workflow run."""
+    for name in STATUS_CONTEXTS:
+        if not checks.get(name, False):
+            continue
+        candidates = [s for s in statuses if s["context"] == name]
+        if not candidates or not all(
+            status_provenance_valid(s, revision) for s in candidates
+        ):
+            raise SystemExit(f"Status {name} lacks trusted workflow provenance")
+
+
 def validate_reviewed_head(policy: dict[str, Any], revision: str) -> None:
     """Bind activation to the reviewed installation PR merged into main."""
     number = policy.get("installation_pr")
@@ -180,6 +219,7 @@ def validate_hosted_checks(policy: dict[str, Any], revision: str | None) -> None
         raise SystemExit("Hosted evidence requires pagination; inspect before applying")
     first = reported_checks(reported, statuses)
     second = reported_checks(confirmed, statuses)
+    validate_status_provenance(statuses, first, revision)
     if not all(
         first.get(name, False) and second.get(name, False)
         for name in policy["required_checks"]

@@ -185,10 +185,22 @@ class ApplyTests(unittest.TestCase):
                         "context": name,
                         "creator": {"login": "github-actions[bot]"},
                         "state": "success",
+                        "target_url": (
+                            "https://github.com/timlaing/pyicloud/actions/runs/42"
+                        ),
                     }
                     for index, name in enumerate(policy["required_checks"])
                     if name in {"Review passed", "Review notifier policy", "Quality"}
                 ]
+            if path == "actions/runs/42":
+                return {
+                    "status": "completed",
+                    "conclusion": "success",
+                    "workflow_id": 17,
+                    "head_sha": "a" * 40,
+                }
+            if path == "actions/workflows/17":
+                return {"path": ".github/workflows/review-notifier-policy.yml"}
             if mismatch == "enable" and path.endswith("/enable"):
                 raise SystemExit("Workflow enablement failed")
             if (
@@ -508,6 +520,9 @@ class EvidenceTests(unittest.TestCase):
                     "context": name,
                     "creator": {"login": "github-actions[bot]"},
                     "state": "success",
+                    "target_url": (
+                        "https://github.com/timlaing/pyicloud/actions/runs/42"
+                    ),
                 }
                 for index, name in enumerate(policy["required_checks"][1:])
             ],
@@ -603,6 +618,15 @@ class EvidenceTests(unittest.TestCase):
                     ]
                 if "/check-runs?" in path:
                     return payload["reported"]
+                if path == "actions/runs/42":
+                    return {
+                        "status": "completed",
+                        "conclusion": "success",
+                        "workflow_id": 17,
+                        "head_sha": "a" * 40,
+                    }
+                if path == "actions/workflows/17":
+                    return {"path": ".github/workflows/review-notifier-policy.yml"}
                 return payload["statuses"]
 
             return api
