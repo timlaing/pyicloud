@@ -442,6 +442,20 @@ test("a native timeout cannot overwrite approval arriving during the final wait"
   assert.equal(f.calls.filter(([name]) => name === "updateComment").length, 0);
 });
 
+test("worker accepts producer-reported check names", async () => {
+  const f = fixture();
+  f.responses.checks = [
+    {id: 1, name: "CI passed", app: {slug: "github-actions"}, status: "completed", conclusion: "success"},
+    {id: 2, name: "sonarqube", app: {slug: "github-advanced-security"}, status: "completed", conclusion: "success"},
+    {id: 3, name: "Analyze (python)", app: {slug: "github-advanced-security"}, status: "completed", conclusion: "success"},
+  ];
+  f.sleep = async () => {
+    f.responses.reviews = [{user: {login: "coderabbitai[bot]"}, commit_id: sha, state: "APPROVED"}];
+  };
+  await review(f);
+  assert.equal(f.calls.filter(([name]) => name === "comment").length, 1);
+});
+
 test("observer publishes Quality transitions and reaches the worker", async () => {
   const f = fixture();
   const context = {

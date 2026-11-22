@@ -163,17 +163,20 @@ module.exports = async ({
     for (const { status, key } of statuses.sort((left, right) => left.status.id - right.status.id))
       latestStatuses.set(key, status);
     if (!(await notifierProof(github, context, current, headStatuses))) return false;
-    const required = ["CI passed", "SonarCloud", "CodeQL", "Review notifier policy"];
-    const passed = required.every((name) => {
-      const expectedApp = ["CI passed", "Review notifier policy"].includes(name) ? "github-actions" : "github-advanced-security";
-      if (name !== "Review notifier policy")
-        return [...latestChecks.values()].some(
-          item => item.name === name && item.app?.slug === expectedApp &&
-            item.status === "completed" && item.conclusion === "success",
-        );
-      const status = [...latestStatuses.values()].find(item => item.context === name && item.creator?.login === expectedApp + "[bot]");
-      return status?.state === "success";
-    });
+    // Same names and producers as the publication recheck. Sonar and CodeQL
+    // accept both the current and language-specific reported names.
+    const checkSources = [
+      { match: name => name === "CI passed", app: "github-actions" },
+      { match: name => ["SonarCloud", "sonarqube"].includes(name), app: "github-advanced-security" },
+      { match: name => name === "CodeQL" || /^Analyze \(.+\)$/.test(name), app: "github-advanced-security" },
+    ];
+    const passed = checkSources.every(source =>
+      [...latestChecks.values()].some(item =>
+        source.match(item.name) && item.app?.slug === source.app &&
+        item.status === "completed" && item.conclusion === "success")) &&
+      [...latestStatuses.values()].some(item =>
+        item.context === "Review notifier policy" &&
+        item.creator?.login === "github-actions[bot]" && item.state === "success");
     return (
       passed &&
       [...latestChecks.values()].every(
