@@ -39,8 +39,8 @@ test("install PR path accepts only owner-authored same-repository heads", async 
   const head = "a".repeat(40);
   const owner = {number: 543, head: {sha: head, repo: {full_name: "owner/repo"}}, user: {login: "owner"}};
   assert.equal(await notifierProof(f.github, context, owner, [f.status]), true);
-  assert.equal(await notifierProof(f.github, context, {head: {sha: head, repo: {full_name: "someone/fork"}}, user: {login: "owner"}}, [f.status]), false);
-  assert.equal(await notifierProof(f.github, context, {head: {sha: head, repo: {full_name: "owner/repo"}}, user: {login: "writer"}}, [f.status]), false);
+  assert.equal(await notifierProof(f.github, context, {number: 543, head: {sha: head, repo: {full_name: "someone/fork"}}, user: {login: "owner"}}, [f.status]), false);
+  assert.equal(await notifierProof(f.github, context, {number: 543, head: {sha: head, repo: {full_name: "owner/repo"}}, user: {login: "writer"}}, [f.status]), false);
 });
 test("feature-branch dispatch requires explicit owner attestation of the exact head", async () => {
   const f = fixture();

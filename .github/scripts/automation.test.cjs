@@ -475,5 +475,5 @@ test("observer publishes Quality transitions and reaches the worker", async () =
   assert.equal(outputs.result, "failure");
   // Pending is published before checkout; the long wait holds no shared group.
   assert.match(observerText, /state: 'pending'/);
-  assert.match(observerText, /group: quality-/);
+  assert.match(observerText, /group: review-publication-/);
 });

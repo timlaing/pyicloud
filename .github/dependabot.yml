@@ -15,7 +15,10 @@ updates:
       - devcontainers
   - package-ecosystem: "pip"
     directory: "/"
-    # Minimum-runtime pins track declared lower bounds, not newest dependency releases.
+    # Minimum-runtime pins track declared lower bounds, not newest dependency
+    # releases. Dependabot never upgrades them independently. When a runtime
+    # lower bound in requirements.txt is changed, update requirements_min.txt in
+    # the same change and verify with scripts/check/minimum.py in CI.
     exclude-paths:
       - "requirements_min.txt"
     versioning-strategy: "increase-if-necessary"

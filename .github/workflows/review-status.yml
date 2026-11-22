@@ -89,13 +89,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     concurrency:
-      # Publication is the only step holding the shared group, so an observer's
-      # long scan-result wait cannot block the CI-triggered Quality run.
-      group: quality-${{ needs.recheck.outputs.sha }}
+      # Observer publication uses its own group so it cannot cancel or replace a
+      # queued native Quality scan run; only observer publications serialize here.
+      group: review-publication-${{ needs.recheck.outputs.sha }}
       cancel-in-progress: false
     permissions:
       statuses: write
       pull-requests: read
+      checks: read
+      actions: read
     steps:
       - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         env:
@@ -104,9 +106,20 @@ jobs:
         with:
           script: |
             let result = process.env.RESULT;
-            // A withdrawal after the worker read must not leave a stale success.
+            // A withdrawal or regressed check after the worker read must not
+            // leave a stale success. Mirror review.cjs's required-check list.
             if (result === 'success') {
               try {
+                const required = ["CI passed", "SonarCloud", "CodeQL", "Review notifier policy"];
+                for (const ref of new Set([context.payload.workflow_run?.head_sha, process.env.HEAD].filter(Boolean))) {
+                  const checks = await github.paginate(github.rest.checks.listForRef, {
+                    ...context.repo, ref, filter: "latest", per_page: 100 });
+                  for (const name of required) {
+                    if (!checks.some(c => c.name === name && c.status === "completed" && c.conclusion === "success")) {
+                      result = 'failure';
+                    }
+                  }
+                }
                 const associated = await github.paginate(
                   github.rest.repos.listPullRequestsAssociatedWithCommit,
                   { ...context.repo, commit_sha: process.env.HEAD, per_page: 100 });

@@ -5,11 +5,13 @@
   "installation_pr": 543,
   "required_checks": ["CI passed", "Quality", "Review notifier policy"],
   "review_gate_requires_main": true,
+  "review_gate_requires_main_note": "Descriptive only; review.cjs enforces the main-branch gate.",
   "sha_pinning_required": true,
   "validation_checks": [
     "CI passed",
     "SonarCloud",
     "CodeQL",
     "Review notifier policy"
-  ]
+  ],
+  "validation_checks_note": "Descriptive only; review.cjs owns the required-check list and the updater reads required_checks."
 }
