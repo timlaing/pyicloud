@@ -83,6 +83,12 @@ jobs:
 
       - name: Validate coverage revision
         id: coverage-revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
         run: |
           set -euo pipefail
           record="$COVERAGE_DIR/coverage-sha.txt"
@@ -90,6 +96,15 @@ jobs:
           [[ $(wc -c < "$record") -le 128 ]] || { echo "Coverage revision file too large"; exit 1; }
           recorded="$(tr -d '\r\n' < "$record")"
           [[ "$recorded" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid coverage revision"; exit 1; }
+          # Bind the artifact to the revision the triggering run actually tested:
+          # the event commit for pushes, the exact merge revision for PRs.
+          if [[ "$RUN_EVENT" == "push" ]]; then
+            expected="$HEAD_SHA"
+          else
+            [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || { echo "Missing PR number"; exit 1; }
+            expected="$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER" --jq .merge_commit_sha)"
+          fi
+          [[ "$recorded" == "$expected" ]] || { echo "Coverage revision does not match the triggering run"; exit 1; }
           echo "validated-sha=$recorded" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -309,27 +324,33 @@ jobs:
             const sha = process.env.HEAD_SHA;
             const isPr = process.env.RUN_EVENT === 'pull_request';
             let approved = false;
+            let lookupError = null;
             if (stages) {
-              const associated = await github.paginate(
-                github.rest.repos.listPullRequestsAssociatedWithCommit,
-                { ...context.repo, commit_sha: sha, per_page: 100 });
-              const candidates = associated.filter(pr =>
-                pr.base.repo.full_name === `${context.repo.owner}/${context.repo.repo}` &&
-                pr.base.ref === 'main' &&
-                (isPr
-                  ? pr.state === 'open' && !pr.draft && pr.head.sha === sha
-                  : pr.merged_at && pr.merge_commit_sha === sha));
-              if (candidates.length === 1) {
-                const reviews = await github.paginate(github.rest.pulls.listReviews, {
-                  ...context.repo, pull_number: candidates[0].number, per_page: 100 });
-                const latest = reviews
-                  .filter(r => r.user?.login === 'coderabbitai[bot]' &&
-                    r.commit_id === candidates[0].head.sha && r.state !== 'COMMENTED')
-                  .at(-1);
-                approved = latest?.state === 'APPROVED';
+              try {
+                const associated = await github.paginate(
+                  github.rest.repos.listPullRequestsAssociatedWithCommit,
+                  { ...context.repo, commit_sha: sha, per_page: 100 });
+                const candidates = associated.filter(pr =>
+                  pr.base.repo.full_name === `${context.repo.owner}/${context.repo.repo}` &&
+                  pr.base.ref === 'main' &&
+                  (isPr
+                    ? pr.state === 'open' && !pr.draft && pr.head.sha === sha
+                    : pr.merged_at && pr.merge_commit_sha === sha));
+                if (candidates.length === 1) {
+                  const reviews = await github.paginate(github.rest.pulls.listReviews, {
+                    ...context.repo, pull_number: candidates[0].number, per_page: 100 });
+                  const latest = reviews
+                    .filter(r => r.user?.login === 'coderabbitai[bot]' &&
+                      r.commit_id === candidates[0].head.sha && r.state !== 'COMMENTED')
+                    .at(-1);
+                  approved = latest?.state === 'APPROVED';
+                }
+              } catch (error) {
+                lookupError = error;
+                core.error(`Approval lookup failed: ${error.message}`);
               }
             }
-            const passed = stages && approved;
+            const passed = stages && approved && lookupError === null;
             await github.rest.repos.createCommitStatus({
               ...context.repo, sha,
               context: "Quality", state: passed ? "success" : "failure",

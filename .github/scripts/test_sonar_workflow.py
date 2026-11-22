@@ -15,6 +15,8 @@ import tempfile
 import textwrap
 import unittest
 
+import yaml
+
 WORKFLOW = Path(__file__).resolve().parents[1] / "workflows" / "sonar.yml"
 HEAD_SHA = "a" * 40
 
@@ -254,7 +256,9 @@ class ManualCIWorkflowTests(unittest.TestCase):
     def test_release_caller_uses_the_validated_event_revision(self) -> None:
         """Release CI cannot reintroduce arbitrary refs under another cache scope."""
         workflow = WORKFLOW.with_name("publish.yml").read_text(encoding="utf-8")
-        self.assertNotIn("with:\n      ref:", workflow)
+        caller = yaml.safe_load(workflow)["jobs"]["validate"]
+        self.assertEqual(caller["uses"], "./.github/workflows/ci.yml")
+        self.assertNotIn("ref", caller.get("with", {}))
         self.assertIn("data.sha !== context.sha", workflow)
 
     def test_push_reviews_are_disabled(self) -> None:
@@ -282,12 +286,15 @@ class ManualCIWorkflowTests(unittest.TestCase):
         """The Actions branch selector sets the manual run's source and cache scope."""
         workflow = WORKFLOW.with_name("ci.yml").read_text(encoding="utf-8")
         self.assertNotIn("inputs.ref", workflow)
-        references = re.findall(r"^\s+ref:\s*([^\n]+)$", workflow, re.MULTILINE)
+        document = yaml.safe_load(workflow)
+        references = [
+            step["with"]["ref"]
+            for job in document["jobs"].values()
+            for step in job.get("steps", [])
+            if str(step.get("uses", "")).startswith("actions/checkout@")
+        ]
         self.assertTrue(references)
-        self.assertEqual(
-            set(references),
-            {"${{ github.sha }}"},
-        )
+        self.assertEqual(set(references), {"${{ github.sha }}"})
 
 
 if __name__ == "__main__":

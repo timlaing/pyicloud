@@ -34,6 +34,7 @@ test("a forged status cannot point at another repository or a different workflow
 test("install PR path accepts only owner-authored same-repository heads", async () => {
   const f = fixture();
   f.proof.event = "pull_request";
+  f.proof.head_branch = "ci/safe-manual-validation";
   const context = {repo: {owner: "owner", repo: "repo"}};
   const head = "a".repeat(40);
   const owner = {head: {sha: head, repo: {full_name: "owner/repo"}}, user: {login: "owner"}};

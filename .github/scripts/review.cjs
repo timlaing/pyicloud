@@ -22,9 +22,11 @@ async function notifierProof(github, context, pull, statuses) {
       run.status !== "completed" || run.conclusion !== "success" ||
       run.display_title !== `Review notifier policy / ${pull.head.sha}`) return false;
   if (run.event === "pull_request_target") return true;
-  // Trusted installation path: the policy workflow is not on main yet, so the
-  // installation PR registers its own head via the pull_request trigger.
-  if (run.event === "pull_request") return pull.head.repo?.full_name === `${context.repo.owner}/${context.repo.repo}` &&
+  // Trusted one-time installation path: the policy workflow is not on main yet,
+  // so only the installation branch, opened by the owner from this repository,
+  // may register its own head via the pull_request trigger.
+  if (run.event === "pull_request") return run.head_branch === "ci/safe-manual-validation" &&
+    pull.head.repo?.full_name === `${context.repo.owner}/${context.repo.repo}` &&
     pull.user?.login === context.repo.owner;
   if (run.event !== "workflow_dispatch") return false;
   if (run.head_branch === repository.default_branch) return true;
@@ -46,6 +48,7 @@ module.exports = async ({
   context,
   core,
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  now = () => Date.now(),
 }) => {
   const { owner, repo } = context.repo;
   const run = context.payload.workflow_run;
@@ -143,15 +146,20 @@ module.exports = async ({
     const statusGroups = await Promise.all(refs.map(ref => github.paginate(github.rest.repos.listCommitStatusesForRef,
       {owner, repo, ref, per_page: 100})));
     const headStatuses = statusGroups[refs.indexOf(current.head.sha)];
-    const names = new Set(statusGroups[0].map(statusKey));
-    const combined = [...statusGroups[0], ...(statusGroups[1] || []).filter(item => !names.has(statusKey(item)))];
-    const statuses = [...combined.filter(item => item.context !== "Review notifier policy"), ...headStatuses.filter(item => item.context === "Review notifier policy")];
+    // Keep the latest status for every revision, producer and context. A failed
+    // head status must survive a success on the merge revision. The notifier
+    // proof is accepted only from the head revision.
+    const statuses = statusGroups.flatMap((group, index) =>
+      group
+        .filter(status => status.context !== "Review notifier policy" || refs[index] === current.head.sha)
+        .map(status => ({ status, key: `${refs[index]}:${statusKey(status)}` })),
+    );
     const latestChecks = new Map();
     for (const { check, key } of checks.sort((left, right) => left.check.id - right.check.id))
       latestChecks.set(key, check);
     const latestStatuses = new Map();
-    for (const status of statuses.sort((left, right) => left.id - right.id))
-      latestStatuses.set(statusKey(status), status);
+    for (const { status, key } of statuses.sort((left, right) => left.status.id - right.status.id))
+      latestStatuses.set(key, status);
     if (!(await notifierProof(github, context, current, headStatuses))) return false;
     const required = ["CI passed", "SonarCloud", "CodeQL", "Review notifier policy"];
     const passed = required.every((name) => {
@@ -175,6 +183,9 @@ module.exports = async ({
     );
   };
   const failed = `<!-- coderabbit-request-failed:${sha} -->`;
+  const windowMs = 40 * 60 * 1000;
+  const startedAt = now();
+  let reviewStartedAt = null;
   let request;
   let requested = false;
   let validationAttempts = 0;
@@ -203,7 +214,7 @@ module.exports = async ({
     const retry =
       request &&
       (request.body.includes(failed) ||
-        Date.now() - Date.parse(request.created_at) >= 40 * 60 * 1000);
+        now() - Date.parse(request.created_at) >= windowMs);
     if (!request || retry) {
       if (requests.length >= 3)
         throw new Error(
@@ -228,13 +239,16 @@ module.exports = async ({
       request = data;
       reviewAttempts = 0;
     }
+    if (reviewStartedAt === null)
+      reviewStartedAt = request ? Date.parse(request.created_at) || now() : now();
     return true;
   };
-  // Validation and review use independent 40-poll windows. The review window
-  // starts only when a request is posted, so slow validation cannot consume it.
+  // Validation and review have independent 40-minute deadlines. The review
+  // deadline starts when a request is posted; validation is capped from the
+  // start so repeated merge changes cannot extend it indefinitely.
   for (;;) {
-    if (!requested && validationAttempts >= 40) break;
-    if (requested && reviewAttempts >= 40) break;
+    if (!requested && (validationAttempts >= 40 || now() - startedAt >= windowMs)) break;
+    if (requested && (reviewAttempts >= 40 || now() - reviewStartedAt >= windowMs)) break;
     const { data: current } = await github.rest.pulls.get({
       owner,
       repo,
@@ -243,7 +257,6 @@ module.exports = async ({
     if (!eligible(current))
       throw new Error("PR closed or changed during review.");
     if (await validationPassed(current)) {
-      validationAttempts = 0;
       const approval = await approved();
       const {data: final} = await github.rest.pulls.get({owner, repo, pull_number: pr.number});
       if (!eligible(final)) throw new Error("PR closed or changed during review.");

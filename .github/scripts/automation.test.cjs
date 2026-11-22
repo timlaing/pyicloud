@@ -9,9 +9,9 @@ const qualitySource = require("./quality-source.cjs");
 
 const sha = "a".repeat(40);
 const observerText = fs.readFileSync(path.join(__dirname, "../workflows/review-status.yml"), "utf8");
-const observerBlock = observerText.split("          script: |\n")[1];
+const observerBlock = observerText.split("      - name: Re-evaluate CodeRabbit approval")[1].split("          script: |\n")[1].split("\n      - name:")[0];
 const observerScript = observerBlock.split("\n").map(line => line.startsWith("            ") ? line.slice(12) : line).join("\n");
-const runObserver = new (Object.getPrototypeOf(async function () {}).constructor)("github", "context", "core", "require", observerScript);
+const runObserver = new (Object.getPrototypeOf(async function () {}).constructor)("github", "context", "core", "require", "process", observerScript);
 const pr = {
   number: 42,
   state: "open",
@@ -457,16 +457,18 @@ test("observer publishes Quality transitions and reaches the worker", async () =
     assert.equal(name, "./.github/scripts/review.cjs");
     return async () => { reached++; };
   };
-  await runObserver(f.github, context, f.core, load);
+  const processStub = {env: {HEAD: sha}};
+  await runObserver(f.github, context, f.core, load, processStub);
   assert.equal(reached, 1);
   const states = f.calls.filter(([name]) => name === "status").map(([, args]) => args.state);
-  assert.deepEqual(states, ["pending", "success"]);
+  assert.deepEqual(states, ["success"]);
+  assert.match(observerText, /state: 'pending'/);
 
   f.calls.length = 0;
   await assert.rejects(
-    runObserver(f.github, context, f.core, () => async () => { throw new Error("approval withdrawn"); }),
+    runObserver(f.github, context, f.core, () => async () => { throw new Error("approval withdrawn"); }, processStub),
     /approval withdrawn/,
   );
   const failed = f.calls.filter(([name]) => name === "status").map(([, args]) => args.state);
-  assert.deepEqual(failed, ["pending", "failure"]);
+  assert.deepEqual(failed, ["failure"]);
 });

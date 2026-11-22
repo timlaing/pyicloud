@@ -124,7 +124,9 @@ def reported_checks(
             checks[item["name"]] = (
                 item["status"] == "completed" and item["conclusion"] == "success"
             )
-    for item in sorted(statuses, key=lambda item: item["id"]):
+    # statuses arrive newest-first from the API; the first eligible result per
+    # context is the current one, so do not reorder or overwrite it.
+    for item in statuses:
         if (
             item.get("creator", {}).get("login") == "github-actions[bot]"
             and item["context"] in STATUS_CONTEXTS
@@ -134,19 +136,24 @@ def reported_checks(
     return checks
 
 
-def validate_reviewed_head(revision: str) -> None:
-    """Bind the activation evidence to exactly one open PR's authoritative head."""
+def validate_reviewed_head(policy: dict[str, Any], revision: str) -> None:
+    """Bind activation to the reviewed installation PR merged into main."""
+    number = policy.get("installation_pr")
+    if not isinstance(number, int):
+        raise SystemExit("The reviewed policy must name its installation PR")
     associated = api(f"commits/{revision}/pulls?per_page=100")
     matches = [
         pr
         for pr in associated
-        if pr["state"] == "open"
+        if pr["number"] == number
+        and pr["state"] == "closed"
+        and pr.get("merged_at")
         and pr["head"]["sha"] == revision
         and pr["base"]["ref"] == "main"
         and pr["base"]["repo"]["full_name"] == REPOSITORY
     ]
     if len(matches) != 1:
-        raise SystemExit("--validated-head must match one open main PR head")
+        raise SystemExit("--validated-head must be the merged installation PR head")
 
 
 def validate_hosted_checks(policy: dict[str, Any], revision: str | None) -> None:
@@ -155,20 +162,28 @@ def validate_hosted_checks(policy: dict[str, Any], revision: str | None) -> None
         raise SystemExit("Required check policy is empty")
     if revision is None or re.fullmatch(r"[a-f0-9]{40}", revision) is None:
         raise SystemExit("Provide --validated-head with the hosted PR head SHA")
-    validate_reviewed_head(revision)
+    validate_reviewed_head(policy, revision)
     evidence = api(f"contents/{POLICY_PATH}?ref={revision}")
     if json.loads(base64.b64decode(evidence["content"])) != policy:
         raise SystemExit("Hosted evidence must use the reviewed workflow policy")
     reported = api(f"commits/{revision}/check-runs?filter=latest&per_page=100")
     statuses = api(f"commits/{revision}/statuses?per_page=100")
-    if (
-        reported["total_count"] >= 100
-        or len(reported["check_runs"]) >= 100
-        or len(statuses) >= 100
-    ):
+    # Re-read check runs after statuses: a check that changed between the two
+    # reads must not be treated as a stable success.
+    confirmed = api(f"commits/{revision}/check-runs?filter=latest&per_page=100")
+    for snapshot in (reported, confirmed):
+        if snapshot["total_count"] >= 100 or len(snapshot["check_runs"]) >= 100:
+            raise SystemExit(
+                "Hosted evidence requires pagination; inspect before applying"
+            )
+    if len(statuses) >= 100:
         raise SystemExit("Hosted evidence requires pagination; inspect before applying")
-    checks = reported_checks(reported, statuses)
-    if not all(checks.get(name, False) for name in policy["required_checks"]):
+    first = reported_checks(reported, statuses)
+    second = reported_checks(confirmed, statuses)
+    if not all(
+        first.get(name, False) and second.get(name, False)
+        for name in policy["required_checks"]
+    ):
         raise SystemExit(
             "Replacement checks have not succeeded on the hosted PR revision"
         )
@@ -237,9 +252,9 @@ def main() -> None:
     )
     if not args.apply:
         return
-    # Detect settings drift before any write, and keep no exclusive lock: the
-    # documented procedure requires a serialized settings-change window.
-    validate_hosted_checks(policy, args.validated_head)
+    # Detect settings drift before any write, enable the replacement workflows
+    # so they can produce hosted proof, then keep the ruleset unchanged until
+    # that proof has succeeded on the reviewed head.
     current_ruleset = api(f"rulesets/{selected['id']}")
     if any(current_ruleset.get(key) != original.get(key) for key in payload):
         raise SystemExit(
@@ -253,6 +268,7 @@ def main() -> None:
         "review-notifier-policy.yml",
     ]:
         api(f"actions/workflows/{workflow}/enable", "PUT")
+    validate_hosted_checks(policy, args.validated_head)
     api(f"rulesets/{selected['id']}", "PUT", payload)
     try:
         current = api(ACTIONS_PERMISSIONS)
@@ -297,7 +313,7 @@ def main() -> None:
             != policy["sha_pinning_required"]
         ):
             raise SystemExit("SHA enforcement did not activate")
-    except SystemExit:
+    except (SystemExit, subprocess.CalledProcessError) as failure:
         # Restore the previous required-check rule; other independent settings
         # are left as-is because a partial write cannot roll those back safely.
         rollback = json.loads(json.dumps(payload))
@@ -314,7 +330,13 @@ def main() -> None:
                 if item["type"] == "required_status_checks"
             )
             target["parameters"] = previous_rule["parameters"]
-        api(f"rulesets/{selected['id']}", "PUT", rollback)
+        try:
+            api(f"rulesets/{selected['id']}", "PUT", rollback)
+        except (SystemExit, subprocess.CalledProcessError) as rollback_failure:
+            raise SystemExit(
+                f"Activation failed ({failure}); rollback also failed "
+                f"({rollback_failure}). The replacement rule may still be active."
+            ) from rollback_failure
         print("Partial activation rolled back to the previous required-check rule")
         raise
     print("Workflow policy applied and required checks verified")

@@ -1,5 +1,7 @@
 {
   "default_workflow_permissions": "read",
+  "installation_branch": "ci/safe-manual-validation",
+  "installation_pr": 543,
   "required_checks": ["CI passed", "Quality", "Review notifier policy"],
   "review_gate_requires_main": true,
   "sha_pinning_required": true,

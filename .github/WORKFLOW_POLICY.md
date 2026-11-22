@@ -8,7 +8,7 @@ After this PR merges, inspect `python3 .github/scripts/apply_workflow_policy.py`
 
 Privileged Sonar workers perform static source/report analysis only, with `sonar.sca.enabled=false` preventing implicit dependency/build-tool execution. Fork-triggered CI never receives the scanner token; the trusted receiver consumes validated source and coverage without running fork-selected commands. Existing dependency audits and Dependabot protection remain independent. Every configured coverage report must be present before scanning.
 
-Settings activation enables replacement workflows first, then verifies successful hosted replacement checks on the explicit reviewed PR head before writing required-check rules. Keep existing protection until that proof exists; failed enablement or missing proof leaves the rules unchanged.
+Settings activation enables and runs the replacement workflows first, then verifies successful hosted replacement checks on the explicit reviewed PR head before writing required-check rules. Keep the existing required-check rule unchanged until that proof exists; failed enablement or missing proof leaves the rules unchanged. The reviewed manifest pins the one-time installation PR and branch; only that merged head may provide activation evidence, and only that installation PR may self-register the notifier status before the policy reaches main.
 
 The repository owner bootstraps or recovers the notifier by inspecting the exact revision and dispatching `review-notifier-policy.yml` on that reviewed branch with its full `revision`. Current-head status acceptance verifies the actual successful workflow run and owner attestation. After the other checks succeed, a maintainer can request the CodeRabbit review; no new token is needed for this rollout.
 

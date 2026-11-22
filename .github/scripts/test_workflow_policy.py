@@ -10,6 +10,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import subprocess
 import sys
 from typing import Any
 import unittest
@@ -123,6 +124,7 @@ class ApplyTests(unittest.TestCase):
             "required_checks": ["Validate ci", "Review passed"],
             "sha_pinning_required": True,
             "default_workflow_permissions": "read",
+            "installation_pr": 543,
         }
         ruleset = {
             "id": 1,
@@ -145,7 +147,9 @@ class ApplyTests(unittest.TestCase):
                 if "/pulls?" in path:
                     return [
                         {
-                            "state": "open",
+                            "number": 543,
+                            "state": "closed",
+                            "merged_at": "2026-11-22T00:00:00Z",
                             "head": {"sha": "a" * 40},
                             "base": {
                                 "ref": "main",
@@ -187,6 +191,12 @@ class ApplyTests(unittest.TestCase):
                 ]
             if mismatch == "enable" and path.endswith("/enable"):
                 raise SystemExit("Workflow enablement failed")
+            if (
+                mismatch == "transport"
+                and method == "PUT"
+                and path == POLICY.ACTIONS_PERMISSIONS
+            ):
+                raise subprocess.CalledProcessError(1, "gh api")
             if path.startswith("rulesets?"):
                 return [
                     {"id": 2, "source_type": "Organization", "enforcement": "active"},
@@ -235,7 +245,12 @@ class ApplyTests(unittest.TestCase):
             patch.object(Path, "read_text", return_value=json.dumps(policy)),
             redirect_stdout(io.StringIO()),
         ):
-            expected = self.assertRaises(SystemExit) if mismatch else nullcontext()
+            if mismatch == "transport":
+                expected = self.assertRaises(subprocess.CalledProcessError)
+            elif mismatch:
+                expected = self.assertRaises(SystemExit)
+            else:
+                expected = nullcontext()
             with expected:
                 POLICY.main()
         return calls
@@ -265,10 +280,105 @@ class ApplyTests(unittest.TestCase):
         self.assertIn(("actions/workflows/dependabot.yml/enable", "PUT", None), calls)
 
     def test_apply_rejects_failed_settings_verification(self) -> None:
-        """An API accepting writes does not establish that the policy took effect."""
-        for mismatch in ["checks", "sha"]:
+        """A late failure restores the previous required-check rule."""
+        for mismatch in ["checks", "sha", "transport"]:
             with self.subTest(mismatch=mismatch):
-                self.exercise_apply(mismatch)
+                calls = self.exercise_apply(mismatch)
+                puts = [
+                    body
+                    for path, method, body in calls
+                    if path == "rulesets/1" and method == "PUT"
+                ]
+                self.assertGreaterEqual(len(puts), 2)
+                self.assertFalse(
+                    any(
+                        rule["type"] == "required_status_checks"
+                        for rule in puts[-1]["rules"]
+                    )
+                )
+
+    def test_rollback_restores_a_previously_existing_check_rule(self) -> None:
+        """Rollback keeps the prior required checks when a rule already existed."""
+        policy = {
+            "required_checks": ["Validate ci"],
+            "sha_pinning_required": True,
+            "default_workflow_permissions": "read",
+            "installation_pr": 543,
+        }
+        previous = {
+            "type": "required_status_checks",
+            "parameters": {"required_status_checks": [{"context": "Old check"}]},
+        }
+        ruleset = {
+            "id": 1,
+            "name": "main",
+            "target": "branch",
+            "enforcement": "active",
+            "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"]}},
+            "bypass_actors": [],
+            "rules": [{"type": "deletion"}, deepcopy(previous)],
+        }
+        puts: list[object] = []
+
+        def api(path: str, method: str = "GET", body: object = None) -> object:
+            if path.startswith("contents/"):
+                return {
+                    "content": base64.b64encode(json.dumps(policy).encode()).decode()
+                }
+            if "/pulls?" in path:
+                return [
+                    {
+                        "number": 543,
+                        "state": "closed",
+                        "merged_at": "2026-11-22T00:00:00Z",
+                        "head": {"sha": "a" * 40},
+                        "base": {
+                            "ref": "main",
+                            "repo": {"full_name": "timlaing/pyicloud"},
+                        },
+                    }
+                ]
+            if "/check-runs?" in path:
+                return {
+                    "total_count": 1,
+                    "check_runs": [
+                        {
+                            "id": 1,
+                            "name": "Validate ci",
+                            "app": {"slug": "github-actions"},
+                            "status": "completed",
+                            "conclusion": "success",
+                        }
+                    ],
+                }
+            if "/statuses?" in path:
+                return []
+            if path.startswith("rulesets?"):
+                return [{"id": 1, "source_type": "Repository", "enforcement": "active"}]
+            if path == "rulesets/1":
+                if method == "PUT":
+                    puts.append(body)
+                    ruleset.update(deepcopy(body))  # type: ignore[arg-type]
+                return deepcopy(ruleset)
+            if path == "":
+                return {"default_branch": "main"}
+            if path == POLICY.ACTIONS_PERMISSIONS and method == "PUT":
+                raise SystemExit("permissions update failed")
+            return {"enabled": True, "allowed_actions": "all"}
+
+        with (
+            patch.object(
+                sys, "argv", [__file__, "--apply", "--validated-head", "a" * 40]
+            ),
+            patch.object(POLICY, "api", side_effect=api),
+            patch.object(Path, "read_text", return_value=json.dumps(policy)),
+            redirect_stdout(io.StringIO()),
+            self.assertRaises(SystemExit),
+        ):
+            POLICY.main()
+        self.assertGreaterEqual(len(puts), 2)
+        restored = puts[-1]["rules"][-1]  # type: ignore[index]
+        self.assertEqual(restored["parameters"], previous["parameters"])
 
     def test_missing_hosted_proof_or_failed_enablement_never_writes_rules(self) -> None:
         """Missing proof or enablement must leave existing rules intact."""
@@ -374,7 +484,10 @@ class EvidenceTests(unittest.TestCase):
                 encoding="utf-8"
             )
         )
-        policy = {"required_checks": list(deployed["required_checks"])}
+        policy = {
+            "required_checks": list(deployed["required_checks"]),
+            "installation_pr": deployed["installation_pr"],
+        }
         baseline: dict[str, Any] = {
             "policy": deepcopy(policy),
             "reported": {
@@ -478,7 +591,9 @@ class EvidenceTests(unittest.TestCase):
                 if "/pulls?" in path:
                     return [
                         {
-                            "state": "open",
+                            "number": 543,
+                            "state": "closed",
+                            "merged_at": "2026-11-22T00:00:00Z",
                             "head": {"sha": "a" * 40},
                             "base": {
                                 "ref": "main",

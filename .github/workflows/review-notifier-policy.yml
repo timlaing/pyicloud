@@ -27,16 +27,20 @@ jobs:
       contents: read
       pull-requests: read
       statuses: write
+    env:
+      INSTALLATION_PR: "543"
     steps:
       # The installation PR is the only one that cannot use the default-branch
-      # validator: the workflow does not exist on main until it merges. A
-      # same-repository PR opened by the owner is trusted to install the policy.
+      # validator: the workflow does not exist on main until it merges. Only the
+      # reviewed installation identity, opened by the owner, may self-register.
       - name: Register installation revision
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
             const pr = context.payload.pull_request;
-            if (pr.head.repo.full_name !== `${context.repo.owner}/${context.repo.repo}` ||
+            if (String(pr.number) !== process.env.INSTALLATION_PR ||
+                pr.head.ref !== 'ci/safe-manual-validation' ||
+                pr.head.repo.full_name !== `${context.repo.owner}/${context.repo.repo}` ||
                 pr.user.login !== context.repo.owner) return;
             await github.rest.repos.createCommitStatus({
               ...context.repo, sha: pr.head.sha, context: 'Review notifier policy',
