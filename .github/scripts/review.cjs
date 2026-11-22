@@ -25,7 +25,8 @@ async function notifierProof(github, context, pull, statuses) {
   // Trusted one-time installation path: the policy workflow is not on main yet,
   // so only the installation branch, opened by the owner from this repository,
   // may register its own head via the pull_request trigger.
-  if (run.event === "pull_request") return run.head_branch === "ci/safe-manual-validation" &&
+  if (run.event === "pull_request") return pull.number === 543 &&
+    run.head_branch === "ci/safe-manual-validation" &&
     pull.head.repo?.full_name === `${context.repo.owner}/${context.repo.repo}` &&
     pull.user?.login === context.repo.owner;
   if (run.event !== "workflow_dispatch") return false;
@@ -268,7 +269,7 @@ module.exports = async ({
       const {data: final} = await github.rest.pulls.get({owner, repo, pull_number: pr.number});
       if (!eligible(final)) throw new Error("PR closed or changed during review.");
       if (final.merge_commit_sha !== current.merge_commit_sha) {await sleep(60000); continue;}
-      if (approval) return;
+      if (approval && await validationPassed(final)) return;
       if (!requested && await requestReview(current.merge_commit_sha)) requested = true;
       if (requested) reviewAttempts++;
     } else {
@@ -281,7 +282,7 @@ module.exports = async ({
   const {data: last} = await github.rest.pulls.get({owner, repo, pull_number: pr.number});
   if (eligible(last) && await validationPassed(last) && await approved()) {
     const {data: final} = await github.rest.pulls.get({owner, repo, pull_number: pr.number});
-    if (eligible(final) && final.merge_commit_sha === last.merge_commit_sha) return;
+    if (eligible(final) && final.merge_commit_sha === last.merge_commit_sha && await validationPassed(final)) return;
   }
   if (request?.id) {
     await github.rest.issues.updateComment({

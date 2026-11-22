@@ -12,7 +12,8 @@ jobs:
     name: Re-evaluate CodeRabbit approval
     if: github.event.workflow_run.path == '.github/workflows/review-events.yml' && github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Covers both the 40-minute validation and 40-minute review windows.
+    timeout-minutes: 90
     permissions:
       contents: read
       pull-requests: read
@@ -94,6 +95,7 @@ jobs:
       cancel-in-progress: false
     permissions:
       statuses: write
+      pull-requests: read
     steps:
       - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         env:
@@ -101,8 +103,34 @@ jobs:
           RESULT: ${{ needs.recheck.outputs.result }}
         with:
           script: |
+            let result = process.env.RESULT;
+            // A withdrawal after the worker read must not leave a stale success.
+            if (result === 'success') {
+              try {
+                const associated = await github.paginate(
+                  github.rest.repos.listPullRequestsAssociatedWithCommit,
+                  { ...context.repo, commit_sha: process.env.HEAD, per_page: 100 });
+                const candidates = associated.filter(pr => pr.state === 'open' && !pr.draft &&
+                  pr.base.ref === 'main' && pr.head.sha === process.env.HEAD &&
+                  pr.base.repo.full_name === `${context.repo.owner}/${context.repo.repo}`);
+                if (candidates.length !== 1) {
+                  result = 'failure';
+                } else {
+                  const reviews = await github.paginate(github.rest.pulls.listReviews, {
+                    ...context.repo, pull_number: candidates[0].number, per_page: 100 });
+                  const latest = reviews
+                    .filter(r => r.user?.login === 'coderabbitai[bot]' &&
+                      r.commit_id === process.env.HEAD && r.state !== 'COMMENTED')
+                    .at(-1);
+                  if (latest?.state !== 'APPROVED') result = 'failure';
+                }
+              } catch (error) {
+                core.error(`Publish-time approval check failed: ${error.message}`);
+                result = 'failure';
+              }
+            }
             await github.rest.repos.createCommitStatus({
               ...context.repo, sha: process.env.HEAD, context: 'Quality',
-              state: process.env.RESULT,
+              state: result,
               target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });

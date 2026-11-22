@@ -587,6 +587,24 @@ class EvidenceTests(unittest.TestCase):
                 }),
             ),
             (
+                "required check regresses on the second read",
+                "a" * 40,
+                lambda data: data.update(
+                    reported_second={
+                        "total_count": 1,
+                        "check_runs": [
+                            {
+                                "id": 1,
+                                "name": policy["required_checks"][0],
+                                "app": {"slug": "github-actions"},
+                                "status": "completed",
+                                "conclusion": "failure",
+                            }
+                        ],
+                    }
+                ),
+            ),
+            (
                 "status cannot override failed check run",
                 "a" * 40,
                 lambda data: (
@@ -603,6 +621,7 @@ class EvidenceTests(unittest.TestCase):
 
         def fake_api(payload: dict[str, Any]) -> Callable[..., object]:
             """Bind each response snapshot independently."""
+            runs_reads = {"count": 0}
 
             def api(path: str, method: str = "GET", body: object = None) -> object:
                 del body
@@ -627,6 +646,9 @@ class EvidenceTests(unittest.TestCase):
                         }
                     ]
                 if "/check-runs?" in path:
+                    runs_reads["count"] += 1
+                    if runs_reads["count"] > 1 and "reported_second" in payload:
+                        return payload["reported_second"]
                     return payload["reported"]
                 if path == "actions/runs/42":
                     return {

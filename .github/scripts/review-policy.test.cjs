@@ -9,7 +9,7 @@ const block = workflow.split("      - name: Verify trusted action updates")[1]
 before(() => assert.ok(block, "The provenance validator must be present"));
 const script = block.split("\n").map(line => line.startsWith("            ") ? line.slice(12) : line).join("\n");
 const execute = new (Object.getPrototypeOf(async function () {}).constructor)("github", "process", script);
-function run(status, tags = []) {
+function run(status, tags = [], compareError = null) {
   const github = {
     rest: {repos: {
       get: async () => ({data: {default_branch: "main"}}),
@@ -17,6 +17,7 @@ function run(status, tags = []) {
         assert.equal(basehead, `${"b".repeat(40)}...main`);
         assert.equal(owner, "actions");
         assert.equal(repo, "github-script");
+        if (compareError) throw compareError;
         return {data: {status}};
       },
       listTags() {},
@@ -33,4 +34,11 @@ test("official default-branch ancestors and exact official release tags are allo
 test("an arbitrary fork commit cannot replace the trusted enforcement action", async () => {
   await assert.rejects(run("behind"), /official/);
   await assert.rejects(run("diverged", [{commit: {sha: "c".repeat(40)}}]), /official/);
+  const notFound = Object.assign(new Error("Not Found"), {status: 404});
+  await assert.rejects(run("diverged", [], notFound), /official/);
+  await run("diverged", [{commit: {sha: "b".repeat(40)}}], notFound);
+});
+test("non-404 comparison errors propagate", async () => {
+  const forbidden = Object.assign(new Error("Forbidden"), {status: 403});
+  await assert.rejects(run("behind", [], forbidden), /Forbidden/);
 });

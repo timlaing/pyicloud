@@ -130,15 +130,13 @@ def reported_checks(
             checks[item["name"]] = (
                 item["status"] == "completed" and item["conclusion"] == "success"
             )
-    # statuses arrive newest-first from the API; the first eligible result per
-    # context is the current one, so do not reorder or overwrite it.
-    for item in statuses:
-        if (
-            item.get("creator", {}).get("login") == "github-actions[bot]"
-            and item["context"] in STATUS_CONTEXTS
-            and item["context"] not in checks
-        ):
-            checks[item["context"]] = item["state"] == "success"
+    # statuses arrive newest-first. The current record for each context is the
+    # only one that may supply a result; an unexpected producer must block, not
+    # fall back to an older record.
+    for context in STATUS_CONTEXTS:
+        current = next((item for item in statuses if item["context"] == context), None)
+        if current and current.get("creator", {}).get("login") == "github-actions[bot]":
+            checks[context] = current["state"] == "success"
     return checks
 
 
@@ -197,8 +195,8 @@ def validate_reviewed_head(policy: dict[str, Any], revision: str) -> None:
         raise SystemExit("--validated-head must be the merged installation PR head")
 
 
-def validate_hosted_checks(policy: dict[str, Any], revision: str | None) -> None:
-    """Require real replacement checks on the reviewed PR revision before activation."""
+def validate_activation_identity(policy: dict[str, Any], revision: str | None) -> None:
+    """Verify the reviewed policy and merged installation PR before any write."""
     if not policy["required_checks"]:
         raise SystemExit("Required check policy is empty")
     if revision is None or re.fullmatch(r"[a-f0-9]{40}", revision) is None:
@@ -207,6 +205,11 @@ def validate_hosted_checks(policy: dict[str, Any], revision: str | None) -> None
     evidence = api(f"contents/{POLICY_PATH}?ref={revision}")
     if json.loads(base64.b64decode(evidence["content"])) != policy:
         raise SystemExit("Hosted evidence must use the reviewed workflow policy")
+
+
+def validate_hosted_checks(policy: dict[str, Any], revision: str | None) -> None:
+    """Require real replacement checks on the reviewed PR revision before activation."""
+    validate_activation_identity(policy, revision)
     reported = api(f"commits/{revision}/check-runs?filter=latest&per_page=100")
     statuses = api(f"commits/{revision}/statuses?per_page=100")
     # Re-read check runs after statuses: a check that changed between the two
@@ -302,6 +305,9 @@ def main() -> None:
         raise SystemExit(
             "Ruleset changed during validation; serialise settings changes and retry"
         )
+    # Verify PR identity and the reviewed manifest before enabling anything;
+    # live check results are validated after enablement.
+    validate_activation_identity(policy, args.validated_head)
     for workflow in [
         "sonar.yml",
         "dependabot.yml",
@@ -311,7 +317,29 @@ def main() -> None:
     ]:
         api(f"actions/workflows/{workflow}/enable", "PUT")
     validate_hosted_checks(policy, args.validated_head)
-    api(f"rulesets/{selected['id']}", "PUT", payload)
+    try:
+        api(f"rulesets/{selected['id']}", "PUT", payload)
+    except (SystemExit, subprocess.CalledProcessError) as failure:
+        # A lost response may mean the write actually landed. Read back before
+        # deciding whether the previous rule must be restored.
+        try:
+            applied = api(f"rulesets/{selected['id']}")
+            checks_rule = next(
+                (
+                    item
+                    for item in applied["rules"]
+                    if item["type"] == "required_status_checks"
+                ),
+                None,
+            )
+            if checks_rule == rule:
+                raise SystemExit(f"Ruleset write uncertain: {failure}") from failure
+        except (SystemExit, subprocess.CalledProcessError) as verification_failure:
+            raise SystemExit(
+                f"Ruleset write failed ({failure}); verification unavailable "
+                f"({verification_failure}). Manual reconciliation required."
+            ) from verification_failure
+        raise
     try:
         current = api(ACTIONS_PERMISSIONS)
         api(
@@ -346,7 +374,12 @@ def main() -> None:
         api("automated-security-fixes", "PUT")
         actual = api(f"rulesets/{selected['id']}")
         actual_checks = next(
-            item for item in actual["rules"] if item["type"] == "required_status_checks"
+            (
+                item
+                for item in actual["rules"]
+                if item["type"] == "required_status_checks"
+            ),
+            None,
         )
         if actual_checks != rule:
             raise SystemExit("Required checks did not match after update")
