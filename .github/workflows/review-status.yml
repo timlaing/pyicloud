@@ -99,51 +99,58 @@ jobs:
       checks: read
       actions: read
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
       - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         env:
           HEAD: ${{ needs.recheck.outputs.sha }}
-          RESULT: ${{ needs.recheck.outputs.result }}
         with:
           script: |
-            let result = process.env.RESULT;
-            // A withdrawal or regressed check after the worker read must not
-            // leave a stale success. Mirror review.cjs's required-check list.
-            if (result === 'success') {
-              try {
-                const required = ["CI passed", "SonarCloud", "CodeQL", "Review notifier policy"];
-                for (const ref of new Set([context.payload.workflow_run?.head_sha, process.env.HEAD].filter(Boolean))) {
-                  const checks = await github.paginate(github.rest.checks.listForRef, {
-                    ...context.repo, ref, filter: "latest", per_page: 100 });
-                  for (const name of required) {
-                    if (!checks.some(c => c.name === name && c.status === "completed" && c.conclusion === "success")) {
-                      result = 'failure';
-                    }
-                  }
-                }
-                const associated = await github.paginate(
-                  github.rest.repos.listPullRequestsAssociatedWithCommit,
-                  { ...context.repo, commit_sha: process.env.HEAD, per_page: 100 });
-                const candidates = associated.filter(pr => pr.state === 'open' && !pr.draft &&
-                  pr.base.ref === 'main' && pr.head.sha === process.env.HEAD &&
-                  pr.base.repo.full_name === `${context.repo.owner}/${context.repo.repo}`);
-                if (candidates.length !== 1) {
-                  result = 'failure';
-                } else {
-                  const reviews = await github.paginate(github.rest.pulls.listReviews, {
-                    ...context.repo, pull_number: candidates[0].number, per_page: 100 });
-                  const latest = reviews
-                    .filter(r => r.user?.login === 'coderabbitai[bot]' &&
-                      r.commit_id === process.env.HEAD && r.state !== 'COMMENTED')
-                    .at(-1);
-                  if (latest?.state !== 'APPROVED') result = 'failure';
-                }
-              } catch (error) {
-                core.error(`Publish-time approval check failed: ${error.message}`);
-                result = 'failure';
+            // Always derive the final state from current evidence: a saved
+            // failure must not overwrite a newer success, nor a stale success
+            // survive a withdrawal. Aggregate across head and merge revisions.
+            const sha = process.env.HEAD;
+            let passed = false;
+            try {
+              const review = require('./.github/scripts/review.cjs');
+              const associated = await github.paginate(
+                github.rest.repos.listPullRequestsAssociatedWithCommit,
+                { ...context.repo, commit_sha: sha, per_page: 100 });
+              const pr = associated.find(item => item.state === 'open' && !item.draft &&
+                item.base.ref === 'main' && item.head.sha === sha &&
+                item.base.repo.full_name === `${context.repo.owner}/${context.repo.repo}`);
+              if (pr) {
+                const refs = [...new Set([pr.head.sha, pr.merge_commit_sha].filter(Boolean))];
+                const groups = await Promise.all(refs.map(ref => github.paginate(
+                  github.rest.checks.listForRef,
+                  { ...context.repo, ref, filter: "latest", per_page: 100 })));
+                const checks = groups.flat();
+                const required = ["CI passed", "SonarCloud", "CodeQL"];
+                const checksPass = required.every(name => checks.some(c =>
+                  c.name === name && c.status === "completed" && c.conclusion === "success")) &&
+                  checks.every(c => c.status === "completed" && ["success", "skipped"].includes(c.conclusion));
+                const statusGroups = await Promise.all(refs.map(ref => github.paginate(
+                  github.rest.repos.listCommitStatusesForRef,
+                  { ...context.repo, ref, per_page: 100 })));
+                const headStatuses = statusGroups[refs.indexOf(pr.head.sha)] || [];
+                const statuses = statusGroups.flat().filter(s => s.context !== "Quality");
+                const statusesPass = statuses.every(s => s.state === "success") &&
+                  await review.notifierProof(github, context, pr, headStatuses);
+                const reviews = await github.paginate(github.rest.pulls.listReviews, {
+                  ...context.repo, pull_number: pr.number, per_page: 100 });
+                const latest = reviews
+                  .filter(r => r.user?.login === 'coderabbitai[bot]' &&
+                    r.commit_id === pr.head.sha && r.state !== 'COMMENTED')
+                  .at(-1);
+                passed = checksPass && statusesPass && latest?.state === 'APPROVED';
               }
+            } catch (error) {
+              core.error(`Publish-time evidence check failed: ${error.message}`);
             }
             await github.rest.repos.createCommitStatus({
-              ...context.repo, sha: process.env.HEAD, context: 'Quality',
-              state: result,
+              ...context.repo, sha, context: 'Quality',
+              state: passed ? 'success' : 'failure',
               target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });

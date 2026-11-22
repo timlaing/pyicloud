@@ -263,9 +263,12 @@ class ManualCIWorkflowTests(unittest.TestCase):
 
     def test_push_reviews_are_disabled(self) -> None:
         """CodeRabbit starts through the post-validation requester only."""
-        config = (WORKFLOW.parents[2] / ".coderabbit.yaml").read_text(encoding="utf-8")
-        self.assertIn("auto_review:\n    enabled: false", config)
-        self.assertIn("auto_incremental_review: false", config)
+        config = yaml.safe_load(
+            (WORKFLOW.parents[2] / ".coderabbit.yaml").read_text(encoding="utf-8")
+        )
+        auto_review = config["reviews"]["auto_review"]
+        self.assertIs(auto_review["enabled"], False)
+        self.assertIs(auto_review["auto_incremental_review"], False)
 
     def test_review_notifications_do_not_trigger_publication(self) -> None:
         """Approval rechecks must not trigger the publication workflow."""

@@ -265,11 +265,11 @@ module.exports = async ({
     if (!eligible(current))
       throw new Error("PR closed or changed during review.");
     if (await validationPassed(current)) {
-      const approval = await approved();
       const {data: final} = await github.rest.pulls.get({owner, repo, pull_number: pr.number});
       if (!eligible(final)) throw new Error("PR closed or changed during review.");
       if (final.merge_commit_sha !== current.merge_commit_sha) {await sleep(60000); continue;}
-      if (approval && await validationPassed(final)) return;
+      // Read approval only after the final validation has passed.
+      if (await validationPassed(final) && await approved()) return;
       if (!requested && await requestReview(current.merge_commit_sha)) requested = true;
       if (requested) reviewAttempts++;
     } else {
