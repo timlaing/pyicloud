@@ -119,7 +119,11 @@ class ApplyTests(unittest.TestCase):
 
     def exercise_apply(self, mismatch: str = "") -> list[tuple[str, str, object]]:
         """Run with a fake API that records writes and serves deployed policy."""
-        policy = {"required_checks": ["Validate ci", "Review passed"]}
+        policy = {
+            "required_checks": ["Validate ci", "Review passed"],
+            "sha_pinning_required": True,
+            "default_workflow_permissions": "read",
+        }
         ruleset = {
             "id": 1,
             "name": "main",
@@ -138,6 +142,17 @@ class ApplyTests(unittest.TestCase):
                     "content": base64.b64encode(json.dumps(policy).encode()).decode()
                 }
             if path.startswith("commits/"):
+                if "/pulls?" in path:
+                    return [
+                        {
+                            "state": "open",
+                            "head": {"sha": "a" * 40},
+                            "base": {
+                                "ref": "main",
+                                "repo": {"full_name": "timlaing/pyicloud"},
+                            },
+                        }
+                    ]
                 if "/check-runs?" in path:
                     return {
                         "total_count": len(policy["required_checks"]),
@@ -189,9 +204,14 @@ class ApplyTests(unittest.TestCase):
                     result["bypass_actors"] = [
                         {"actor_id": 7, "actor_type": "RepositoryRole"}
                     ]
-                if mismatch == "checks" and any(
-                    method == "PUT" and path == "rulesets/1"
-                    for path, method, _ in calls
+                if (
+                    mismatch == "checks"
+                    and any(
+                        method == "PUT" and path == "rulesets/1"
+                        for path, method, _ in calls
+                    )
+                    and result["rules"]
+                    and result["rules"][-1]["type"] == "required_status_checks"
                 ):
                     result["rules"][-1]["parameters"]["required_status_checks"] = []
                 return result
@@ -349,13 +369,12 @@ class EvidenceTests(unittest.TestCase):
         self,
     ) -> None:
         """Execute the real evidence guard across valid and incomplete reports."""
-        policy = {
-            "required_checks": [
-                "Validate ci",
-                "Review passed",
-                "Review notifier policy",
-            ]
-        }
+        deployed = json.loads(
+            (Path(__file__).parents[2] / ".github/workflow-policy.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        policy = {"required_checks": list(deployed["required_checks"])}
         baseline: dict[str, Any] = {
             "policy": deepcopy(policy),
             "reported": {
@@ -363,7 +382,7 @@ class EvidenceTests(unittest.TestCase):
                 "check_runs": [
                     {
                         "id": 1,
-                        "name": "Validate ci",
+                        "name": policy["required_checks"][0],
                         "app": {"slug": "github-actions"},
                         "status": "completed",
                         "conclusion": "success",
@@ -429,6 +448,19 @@ class EvidenceTests(unittest.TestCase):
                     }),
                 ),
             ),
+            (
+                "status cannot override failed check run",
+                "a" * 40,
+                lambda data: (
+                    data["reported"]["check_runs"][0].update(conclusion="failure"),
+                    data["statuses"].append({
+                        "id": 99,
+                        "context": policy["required_checks"][0],
+                        "creator": {"login": "github-actions[bot]"},
+                        "state": "success",
+                    }),
+                ),
+            ),
         ]
 
         def fake_api(payload: dict[str, Any]) -> Callable[..., object]:
@@ -443,6 +475,17 @@ class EvidenceTests(unittest.TestCase):
                             json.dumps(payload["policy"]).encode()
                         ).decode()
                     }
+                if "/pulls?" in path:
+                    return [
+                        {
+                            "state": "open",
+                            "head": {"sha": "a" * 40},
+                            "base": {
+                                "ref": "main",
+                                "repo": {"full_name": "timlaing/pyicloud"},
+                            },
+                        }
+                    ]
                 if "/check-runs?" in path:
                     return payload["reported"]
                 return payload["statuses"]

@@ -13,7 +13,12 @@ function run(status, tags = []) {
   const github = {
     rest: {repos: {
       get: async () => ({data: {default_branch: "main"}}),
-      compareCommitsWithBasehead: async () => ({data: {status}}),
+      compareCommitsWithBasehead: async ({owner, repo, basehead}) => {
+        assert.equal(basehead, `${"b".repeat(40)}...main`);
+        assert.equal(owner, "actions");
+        assert.equal(repo, "github-script");
+        return {data: {status}};
+      },
       listTags() {},
     }},
     paginate: async () => tags,

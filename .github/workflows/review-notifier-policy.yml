@@ -6,7 +6,7 @@ run-name: Review notifier policy / ${{ github.event.pull_request.head.sha || inp
     branches: [main]
   pull_request_target:
     branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
   workflow_dispatch:
     inputs:
       revision:
@@ -23,8 +23,26 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 2
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
     steps:
-      - run: "true"
+      # The installation PR is the only one that cannot use the default-branch
+      # validator: the workflow does not exist on main until it merges. A
+      # same-repository PR opened by the owner is trusted to install the policy.
+      - name: Register installation revision
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            if (pr.head.repo.full_name !== `${context.repo.owner}/${context.repo.repo}` ||
+                pr.user.login !== context.repo.owner) return;
+            await github.rest.repos.createCommitStatus({
+              ...context.repo, sha: pr.head.sha, context: 'Review notifier policy',
+              state: 'success', description: 'Trusted maintainer policy installation',
+              target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            });
   validate:
     if: github.event_name != 'pull_request'
     name: Inspect review event policy
@@ -135,7 +153,7 @@ jobs:
           import re
           import yaml
 
-          class UniqueLoader(yaml.BaseLoader):
+          class UniqueLoader(yaml.SafeLoader):
               def compose_node(self, parent, index):
                   if self.check_event(yaml.AliasEvent):
                       raise ValueError("Policy aliases are not allowed")
@@ -144,8 +162,12 @@ jobs:
               def construct_mapping(self, node, deep=False):
                   result = {}
                   for key_node, value_node in node.value:
-                      key = self.construct_object(key_node, deep=deep)
-                      if not isinstance(key, str) or key in result:
+                      # Treat keys as literal strings (YAML 1.1 resolves "on" to
+                      # True) while values keep their types via SafeLoader.
+                      if not isinstance(key_node, yaml.ScalarNode):
+                          raise ValueError('Duplicate or non-scalar policy key')
+                      key = key_node.value
+                      if key in result:
                           raise ValueError('Duplicate or non-scalar policy key')
                       result[key] = self.construct_object(value_node, deep=deep)
                   return result
@@ -167,7 +189,7 @@ jobs:
               'jobs': {'notify': {
                   'name': 'Review event notification',
                   'runs-on': 'ubuntu-latest',
-                  'timeout-minutes': '2',
+                  'timeout-minutes': 2,
                   'steps': [{'run': 'true'}],
               }},
           }

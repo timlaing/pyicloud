@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -71,6 +71,9 @@ jobs:
       - name: Enforce per-file combined line-and-branch coverage
         run: .venv/bin/python scripts/check/file_coverage.py coverage.xml
 
+      - name: Record validated revision
+        run: git rev-parse HEAD > coverage-sha.txt
+
       - name: Check installed distributions on Python 3.15
         if: matrix.python-version == '3.15'
         run: |
@@ -99,7 +102,9 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: coverage-report
-          path: coverage.xml
+          path: |
+            coverage.xml
+            coverage-sha.txt
           if-no-files-found: error
           retention-days: 7
 

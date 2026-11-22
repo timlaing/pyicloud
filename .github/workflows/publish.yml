@@ -34,7 +34,7 @@ jobs:
         with:
           script: |
             if (context.eventName === 'release') {
-              const { data } = await github.rest.repos.getCommit({ ...context.repo, ref: context.payload.release.tag_name });
+              const { data } = await github.rest.repos.getCommit({ ...context.repo, ref: `tags/${context.payload.release.tag_name}` });
               if (data.sha !== context.sha) throw new Error('Release revision changed after the event.');
               const source = require('./.github/scripts/quality-source.cjs');
               await source.requireMainQuality({ github, context, sha: data.sha });

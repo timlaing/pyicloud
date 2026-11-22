@@ -6,17 +6,26 @@ async function notifierProof(github, context, pull, statuses) {
   if (status?.state !== "success") return false;
   const prefix = `${context.serverUrl || "https://github.com"}/${context.repo.owner}/${context.repo.repo}/actions/runs/`;
   if (!status.target_url?.startsWith(prefix)) return false;
-  const runId = status.target_url.slice(prefix.length);
-  if (!/^[1-9]\d*$/.test(runId)) return false;
-  const [{ data: run }, { data: workflow }, { data: repository }] = await Promise.all([
-    github.rest.actions.getWorkflowRun({ ...context.repo, run_id: runId }),
-    github.rest.actions.getWorkflow({ ...context.repo, workflow_id: "review-notifier-policy.yml" }),
-    github.rest.repos.get({ ...context.repo }),
-  ]);
+  const runId = Number(status.target_url.slice(prefix.length));
+  if (!Number.isSafeInteger(runId) || runId <= 0) return false;
+  let run, workflow, repository;
+  try {
+    [{ data: run }, { data: workflow }, { data: repository }] = await Promise.all([
+      github.rest.actions.getWorkflowRun({ ...context.repo, run_id: runId }),
+      github.rest.actions.getWorkflow({ ...context.repo, workflow_id: "review-notifier-policy.yml" }),
+      github.rest.repos.get({ ...context.repo }),
+    ]);
+  } catch {
+    return false;
+  }
   if (run.workflow_id !== workflow.id || workflow.path !== ".github/workflows/review-notifier-policy.yml" ||
       run.status !== "completed" || run.conclusion !== "success" ||
       run.display_title !== `Review notifier policy / ${pull.head.sha}`) return false;
   if (run.event === "pull_request_target") return true;
+  // Trusted installation path: the policy workflow is not on main yet, so the
+  // installation PR registers its own head via the pull_request trigger.
+  if (run.event === "pull_request") return pull.head.repo?.full_name === `${context.repo.owner}/${context.repo.repo}` &&
+    pull.user?.login === context.repo.owner;
   if (run.event !== "workflow_dispatch") return false;
   if (run.head_branch === repository.default_branch) return true;
   // Explicit owner-reviewed bootstrap/recovery: writer access alone never authorizes this.
@@ -126,11 +135,11 @@ module.exports = async ({
         }),
       ),
     );
-    const mergeNames = new Set(groups[0].map(checkKey));
-    const checks = [
-      ...groups[0],
-      ...(groups[1] || []).filter((check) => !mergeNames.has(checkKey(check))),
-    ];
+    // Keep every head-ref check under a ref-qualified key: a same-named merge-ref
+    // check must not hide a failed or incomplete head-ref result.
+    const checks = refs.flatMap((ref, index) =>
+      groups[index].map((check) => ({ check, key: `${ref}:${checkKey(check)}` })),
+    );
     const statusGroups = await Promise.all(refs.map(ref => github.paginate(github.rest.repos.listCommitStatusesForRef,
       {owner, repo, ref, per_page: 100})));
     const headStatuses = statusGroups[refs.indexOf(current.head.sha)];
@@ -138,8 +147,8 @@ module.exports = async ({
     const combined = [...statusGroups[0], ...(statusGroups[1] || []).filter(item => !names.has(statusKey(item)))];
     const statuses = [...combined.filter(item => item.context !== "Review notifier policy"), ...headStatuses.filter(item => item.context === "Review notifier policy")];
     const latestChecks = new Map();
-    for (const check of checks.sort((left, right) => left.id - right.id))
-      latestChecks.set(checkKey(check), check);
+    for (const { check, key } of checks.sort((left, right) => left.check.id - right.check.id))
+      latestChecks.set(key, check);
     const latestStatuses = new Map();
     for (const status of statuses.sort((left, right) => left.id - right.id))
       latestStatuses.set(statusKey(status), status);
@@ -168,7 +177,15 @@ module.exports = async ({
   const failed = `<!-- coderabbit-request-failed:${sha} -->`;
   let request;
   let requested = false;
-  const requestReview = async () => {
+  let validationAttempts = 0;
+  let reviewAttempts = 0;
+  const eligible = (candidate) =>
+    candidate.state === "open" &&
+    !candidate.draft &&
+    candidate.head.sha === sha &&
+    candidate.base.ref === "main" &&
+    candidate.base.repo.full_name === `${owner}/${repo}`;
+  const requestReview = async (mergeSha) => {
     const marker = `<!-- coderabbit-after-checks:${sha} -->`;
     const comments = await github.paginate(github.rest.issues.listComments, {
       owner,
@@ -197,8 +214,11 @@ module.exports = async ({
         repo,
         pull_number: pr.number,
       });
-      if (current.state !== "open" || current.draft || current.head.sha !== sha || current.base.ref !== "main" || current.base.repo.full_name !== `${owner}/${repo}`)
+      if (!eligible(current))
         throw new Error("PR closed or changed during review.");
+      // The merge commit can change while validation is in flight; do not pin a
+      // review request to a revision that has already been superseded.
+      if (current.merge_commit_sha !== mergeSha) return false;
       const { data } = await github.rest.issues.createComment({
         owner,
         repo,
@@ -206,34 +226,42 @@ module.exports = async ({
         body: `@coderabbitai review\n\n${marker}`,
       });
       request = data;
+      reviewAttempts = 0;
     }
-    requested = true;
+    return true;
   };
-  // Bounded waiting replaces the previous event/cooldown race. New commits invalidate this run.
-  for (let attempt = 0; attempt < 40; attempt++) {
+  // Validation and review use independent 40-poll windows. The review window
+  // starts only when a request is posted, so slow validation cannot consume it.
+  for (;;) {
+    if (!requested && validationAttempts >= 40) break;
+    if (requested && reviewAttempts >= 40) break;
     const { data: current } = await github.rest.pulls.get({
       owner,
       repo,
       pull_number: pr.number,
     });
-    if (current.state !== "open" || current.draft || current.head.sha !== sha || current.base.ref !== "main" || current.base.repo.full_name !== `${owner}/${repo}`)
+    if (!eligible(current))
       throw new Error("PR closed or changed during review.");
     if (await validationPassed(current)) {
+      validationAttempts = 0;
       const approval = await approved();
       const {data: final} = await github.rest.pulls.get({owner, repo, pull_number: pr.number});
-      if (final.head.sha !== sha || final.base.ref !== "main") throw new Error("PR closed or changed during review.");
+      if (!eligible(final)) throw new Error("PR closed or changed during review.");
       if (final.merge_commit_sha !== current.merge_commit_sha) {await sleep(60000); continue;}
       if (approval) return;
-      if (!requested) await requestReview();
+      if (!requested && await requestReview(current.merge_commit_sha)) requested = true;
+      if (requested) reviewAttempts++;
+    } else {
+      validationAttempts++;
     }
     core.info(`Waiting for CodeRabbit approval of PR #${pr.number} at ${sha}`);
     await sleep(60000);
   }
   // Another trusted receiver may have observed approval during our final wait.
   const {data: last} = await github.rest.pulls.get({owner, repo, pull_number: pr.number});
-  if (last.state === "open" && !last.draft && last.head.sha === sha && last.base.ref === "main" && await validationPassed(last) && await approved()) {
+  if (eligible(last) && await validationPassed(last) && await approved()) {
     const {data: final} = await github.rest.pulls.get({owner, repo, pull_number: pr.number});
-    if (final.state === "open" && !final.draft && final.head.sha === sha && final.base.ref === "main" && final.merge_commit_sha === last.merge_commit_sha) return;
+    if (eligible(final) && final.merge_commit_sha === last.merge_commit_sha) return;
   }
   if (request?.id) {
     await github.rest.issues.updateComment({

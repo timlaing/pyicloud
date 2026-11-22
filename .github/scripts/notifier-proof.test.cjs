@@ -12,7 +12,7 @@ function fixture() {
     getWorkflowRun: async () => ({data: proof}),
     getWorkflow: async () => ({data: {id: 17, path: ".github/workflows/review-notifier-policy.yml"}}),
   }, repos: {get: async () => ({data: {default_branch: "main"}})}}};
-  return {proof, status, check: () => notifierProof(github, {repo: {owner: "owner", repo: "repo"}}, {head: {sha}}, [status])};
+  return {proof, status, github, check: () => notifierProof(github, {repo: {owner: "owner", repo: "repo"}}, {head: {sha}}, [status])};
 }
 test("only a successful current-revision run of the actual notifier workflow is accepted", async () => {
   const f = fixture();
@@ -30,6 +30,16 @@ test("a forged status cannot point at another repository or a different workflow
     f.status.target_url = target;
     assert.equal(await f.check(), false);
   }
+});
+test("install PR path accepts only owner-authored same-repository heads", async () => {
+  const f = fixture();
+  f.proof.event = "pull_request";
+  const context = {repo: {owner: "owner", repo: "repo"}};
+  const head = "a".repeat(40);
+  const owner = {head: {sha: head, repo: {full_name: "owner/repo"}}, user: {login: "owner"}};
+  assert.equal(await notifierProof(f.github, context, owner, [f.status]), true);
+  assert.equal(await notifierProof(f.github, context, {head: {sha: head, repo: {full_name: "someone/fork"}}, user: {login: "owner"}}, [f.status]), false);
+  assert.equal(await notifierProof(f.github, context, {head: {sha: head, repo: {full_name: "owner/repo"}}, user: {login: "writer"}}, [f.status]), false);
 });
 test("feature-branch dispatch requires explicit owner attestation of the exact head", async () => {
   const f = fixture();

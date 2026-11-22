@@ -99,27 +99,54 @@ def main_ruleset() -> dict[str, Any]:
     )
 
 
+STATUS_CONTEXTS = {
+    "Review passed",
+    "Review notifier policy",
+    "Quality",
+    "Analysis passed",
+}
+
+
 def reported_checks(
     reported: dict[str, Any], statuses: list[dict[str, Any]]
 ) -> dict[str, bool]:
-    """Read current results only from the expected producer and result type."""
-    checks = {}
+    """Read results from the expected producer and authoritative result type.
+
+    A check run is authoritative for its context. A same-named commit status must
+    not overwrite it, otherwise a successful status could mask a failed check.
+    """
+    checks: dict[str, bool] = {}
     for item in sorted(reported["check_runs"], key=lambda item: item["id"]):
-        if item.get("app", {}).get("slug") == "github-actions" and item["name"] not in {
-            "Review passed",
-            "Review notifier policy",
-            "Quality",
-            "Analysis passed",
-        }:
+        if (
+            item.get("app", {}).get("slug") == "github-actions"
+            and item["name"] not in STATUS_CONTEXTS
+        ):
             checks[item["name"]] = (
                 item["status"] == "completed" and item["conclusion"] == "success"
             )
     for item in sorted(statuses, key=lambda item: item["id"]):
-        if item.get("creator", {}).get("login") == "github-actions[bot]" and item[
-            "context"
-        ] in {"Review passed", "Review notifier policy", "Quality", "Analysis passed"}:
+        if (
+            item.get("creator", {}).get("login") == "github-actions[bot]"
+            and item["context"] in STATUS_CONTEXTS
+            and item["context"] not in checks
+        ):
             checks[item["context"]] = item["state"] == "success"
     return checks
+
+
+def validate_reviewed_head(revision: str) -> None:
+    """Bind the activation evidence to exactly one open PR's authoritative head."""
+    associated = api(f"commits/{revision}/pulls?per_page=100")
+    matches = [
+        pr
+        for pr in associated
+        if pr["state"] == "open"
+        and pr["head"]["sha"] == revision
+        and pr["base"]["ref"] == "main"
+        and pr["base"]["repo"]["full_name"] == REPOSITORY
+    ]
+    if len(matches) != 1:
+        raise SystemExit("--validated-head must match one open main PR head")
 
 
 def validate_hosted_checks(policy: dict[str, Any], revision: str | None) -> None:
@@ -128,12 +155,17 @@ def validate_hosted_checks(policy: dict[str, Any], revision: str | None) -> None
         raise SystemExit("Required check policy is empty")
     if revision is None or re.fullmatch(r"[a-f0-9]{40}", revision) is None:
         raise SystemExit("Provide --validated-head with the hosted PR head SHA")
+    validate_reviewed_head(revision)
     evidence = api(f"contents/{POLICY_PATH}?ref={revision}")
     if json.loads(base64.b64decode(evidence["content"])) != policy:
         raise SystemExit("Hosted evidence must use the reviewed workflow policy")
     reported = api(f"commits/{revision}/check-runs?filter=latest&per_page=100")
     statuses = api(f"commits/{revision}/statuses?per_page=100")
-    if reported["total_count"] > 100 or len(statuses) == 100:
+    if (
+        reported["total_count"] >= 100
+        or len(reported["check_runs"]) >= 100
+        or len(statuses) >= 100
+    ):
         raise SystemExit("Hosted evidence requires pagination; inspect before applying")
     checks = reported_checks(reported, statuses)
     if not all(checks.get(name, False) for name in policy["required_checks"]):
@@ -180,6 +212,8 @@ def main() -> None:
         (item for item in payload["rules"] if item["type"] == "required_status_checks"),
         None,
     )
+    # Retain the previous rule so a partial activation can be rolled back.
+    previous_rule = json.loads(json.dumps(rule)) if rule is not None else None
     if rule is None:
         rule = {"type": "required_status_checks", "parameters": {}}
         payload["rules"].append(rule)
@@ -203,6 +237,14 @@ def main() -> None:
     )
     if not args.apply:
         return
+    # Detect settings drift before any write, and keep no exclusive lock: the
+    # documented procedure requires a serialized settings-change window.
+    validate_hosted_checks(policy, args.validated_head)
+    current_ruleset = api(f"rulesets/{selected['id']}")
+    if any(current_ruleset.get(key) != original.get(key) for key in payload):
+        raise SystemExit(
+            "Ruleset changed during validation; serialise settings changes and retry"
+        )
     for workflow in [
         "sonar.yml",
         "dependabot.yml",
@@ -211,52 +253,70 @@ def main() -> None:
         "review-notifier-policy.yml",
     ]:
         api(f"actions/workflows/{workflow}/enable", "PUT")
-    validate_hosted_checks(policy, args.validated_head)
-    latest = api(f"rulesets/{selected['id']}")
-    if any(latest.get(key) != original.get(key) for key in payload):
-        raise SystemExit(
-            "Ruleset changed during validation; serialise settings changes and retry"
-        )
     api(f"rulesets/{selected['id']}", "PUT", payload)
-    current = api(ACTIONS_PERMISSIONS)
-    api(
-        ACTIONS_PERMISSIONS,
-        "PUT",
-        {
-            "enabled": current["enabled"],
-            "allowed_actions": current["allowed_actions"],
-            "sha_pinning_required": True,
-        },
-    )
-    workflow_permissions = api("actions/permissions/workflow")
-    api(
-        "actions/permissions/workflow",
-        "PUT",
-        {
-            "default_workflow_permissions": "read",
-            "can_approve_pull_request_reviews": workflow_permissions[
-                "can_approve_pull_request_reviews"
-            ],
-        },
-    )
-    api(
-        "",
-        "PATCH",
-        {
-            "allow_auto_merge": True,
-            "delete_branch_on_merge": True,
-            "allow_update_branch": True,
-        },
-    )
-    api("automated-security-fixes", "PUT")
-    actual = api(f"rulesets/{selected['id']}")
-    actual_checks = next(
-        item for item in actual["rules"] if item["type"] == "required_status_checks"
-    )
-    if actual_checks != rule:
-        raise SystemExit("Required checks did not match after update")
-    if not api(ACTIONS_PERMISSIONS)["sha_pinning_required"]:
-        raise SystemExit("SHA enforcement did not activate")
+    try:
+        current = api(ACTIONS_PERMISSIONS)
+        api(
+            ACTIONS_PERMISSIONS,
+            "PUT",
+            {
+                "enabled": current["enabled"],
+                "allowed_actions": current["allowed_actions"],
+                "sha_pinning_required": policy["sha_pinning_required"],
+            },
+        )
+        workflow_permissions = api("actions/permissions/workflow")
+        api(
+            "actions/permissions/workflow",
+            "PUT",
+            {
+                "default_workflow_permissions": policy["default_workflow_permissions"],
+                "can_approve_pull_request_reviews": workflow_permissions[
+                    "can_approve_pull_request_reviews"
+                ],
+            },
+        )
+        api(
+            "",
+            "PATCH",
+            {
+                "allow_auto_merge": True,
+                "delete_branch_on_merge": True,
+                "allow_update_branch": True,
+            },
+        )
+        api("automated-security-fixes", "PUT")
+        actual = api(f"rulesets/{selected['id']}")
+        actual_checks = next(
+            item for item in actual["rules"] if item["type"] == "required_status_checks"
+        )
+        if actual_checks != rule:
+            raise SystemExit("Required checks did not match after update")
+        if (
+            api(ACTIONS_PERMISSIONS)["sha_pinning_required"]
+            != policy["sha_pinning_required"]
+        ):
+            raise SystemExit("SHA enforcement did not activate")
+    except SystemExit:
+        # Restore the previous required-check rule; other independent settings
+        # are left as-is because a partial write cannot roll those back safely.
+        rollback = json.loads(json.dumps(payload))
+        if previous_rule is None:
+            rollback["rules"] = [
+                item
+                for item in rollback["rules"]
+                if item["type"] != "required_status_checks"
+            ]
+        else:
+            target = next(
+                item
+                for item in rollback["rules"]
+                if item["type"] == "required_status_checks"
+            )
+            target["parameters"] = previous_rule["parameters"]
+        api(f"rulesets/{selected['id']}", "PUT", rollback)
+        print("Partial activation rolled back to the previous required-check rule")
+        raise
     print("Workflow policy applied and required checks verified")
 
 

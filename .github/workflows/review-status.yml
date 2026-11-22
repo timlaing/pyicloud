@@ -8,8 +8,10 @@ on:
 permissions: {}
 
 concurrency:
+  # One authoritative Quality publisher per head: a newer review event replaces
+  # an in-flight one so two observers cannot publish conflicting results.
   group: review-status-${{ github.event.workflow_run.head_sha }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   review-event:
@@ -40,7 +42,17 @@ jobs:
             const candidates = associated.filter(pr => pr.state === 'open' && !pr.draft &&
               pr.base.ref === 'main' && pr.base.repo.full_name === `${context.repo.owner}/${context.repo.repo}` &&
               [pr.head.sha, pr.merge_commit_sha].includes(trigger.head_sha));
-            if (candidates.length !== 1) return;
+            if (candidates.length < 1) return;
+            const fail = async (revision, description) => github.rest.repos.createCommitStatus({
+              ...context.repo, sha: revision, context: 'Quality', state: 'failure',
+              description,
+              target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            });
+            if (candidates.length > 1) {
+              for (const revision of new Set(candidates.map(pr => pr.head.sha)))
+                await fail(revision, 'Ambiguous PR head; use a unique revision per PR');
+              return;
+            }
             const sha = candidates[0].head.sha;
             const status = state => github.rest.repos.createCommitStatus({
               ...context.repo, sha, context: 'Quality', state,

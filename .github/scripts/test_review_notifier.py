@@ -108,12 +108,16 @@ class ReviewNotifierTests(unittest.TestCase):
     def test_aliases_are_rejected(self) -> None:
         """Alias expansion cannot exhaust the trusted validator."""
         candidate = POLICY.read_text() + "\nextra: &value [*value]\n"
-        self.assertNotEqual(self.execute(NOTIFIER.read_text(), candidate).returncode, 0)
+        result = self.execute(NOTIFIER.read_text(), candidate)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Policy aliases are not allowed", result.stderr)
 
     def test_duplicate_keys_are_rejected(self) -> None:
         """YAML ambiguity cannot alter the effective workflow behind the check."""
-        candidate = POLICY.read_text() + "\nname: Replaced\n"
-        self.assertNotEqual(self.execute(NOTIFIER.read_text(), candidate).returncode, 0)
+        candidate = POLICY.read_text() + "\nname: Review notifier policy\n"
+        result = self.execute(NOTIFIER.read_text(), candidate)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Duplicate or non-scalar policy key", result.stderr)
 
     def test_action_updates_require_separate_provenance_verification(self) -> None:
         """Only same-action SHA changes reach the official-commit check."""

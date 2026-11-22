@@ -1,11 +1,17 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const review = require("./review.cjs");
 const approve = require("./approve-workflows.cjs");
 const merge = require("./dependabot.cjs");
 const qualitySource = require("./quality-source.cjs");
 
 const sha = "a".repeat(40);
+const observerText = fs.readFileSync(path.join(__dirname, "../workflows/review-status.yml"), "utf8");
+const observerBlock = observerText.split("          script: |\n")[1];
+const observerScript = observerBlock.split("\n").map(line => line.startsWith("            ") ? line.slice(12) : line).join("\n");
+const runObserver = new (Object.getPrototypeOf(async function () {}).constructor)("github", "context", "core", "require", observerScript);
 const pr = {
   number: 42,
   state: "open",
@@ -70,7 +76,7 @@ function fixture(event = "pull_request") {
       actions: {
         listWorkflowRunsForRepo: "runs",
         approveWorkflowRun: route("approveRun", {}),
-        getWorkflowRun: route("source", (args) => args.run_id === "42" ? {workflow_id: 17, status: "completed", conclusion: "success", display_title: `Review notifier policy / ${sha}`, event: "pull_request_target"} : responses.ci),
+        getWorkflowRun: route("source", (args) => Number(args.run_id) === 42 ? {workflow_id: 17, status: "completed", conclusion: "success", display_title: `Review notifier policy / ${sha}`, event: "pull_request_target"} : responses.ci),
         getWorkflow: route("notifierWorkflow", {id: 17, path: ".github/workflows/review-notifier-policy.yml"}),
       },
     },
@@ -434,4 +440,33 @@ test("a native timeout cannot overwrite approval arriving during the final wait"
   f.sleep = async () => {if (++sleeps === 40) f.responses.reviews = [{user: {login: "coderabbitai[bot]"}, commit_id: sha, state: "APPROVED"}];};
   await review(f);
   assert.equal(f.calls.filter(([name]) => name === "updateComment").length, 0);
+});
+
+test("observer publishes Quality transitions and reaches the worker", async () => {
+  const f = fixture();
+  const context = {
+    repo: { owner: "owner", repo: "repo" },
+    payload: { workflow_run: {
+      event: "pull_request", head_sha: sha,
+      path: ".github/workflows/review-events.yml", conclusion: "success",
+    } },
+    serverUrl: "https://github.com", runId: 99,
+  };
+  let reached = 0;
+  const load = (name) => {
+    assert.equal(name, "./.github/scripts/review.cjs");
+    return async () => { reached++; };
+  };
+  await runObserver(f.github, context, f.core, load);
+  assert.equal(reached, 1);
+  const states = f.calls.filter(([name]) => name === "status").map(([, args]) => args.state);
+  assert.deepEqual(states, ["pending", "success"]);
+
+  f.calls.length = 0;
+  await assert.rejects(
+    runObserver(f.github, context, f.core, () => async () => { throw new Error("approval withdrawn"); }),
+    /approval withdrawn/,
+  );
+  const failed = f.calls.filter(([name]) => name === "status").map(([, args]) => args.state);
+  assert.deepEqual(failed, ["pending", "failure"]);
 });

@@ -272,6 +272,11 @@ class ManualCIWorkflowTests(unittest.TestCase):
         self.assertIn("ref: ${{ github.event.repository.default_branch }}", observer)
         self.assertIn("context: 'Quality'", observer)
         self.assertNotIn("SONAR_TOKEN", observer)
+        # Publication must subscribe only to Quality, never to a review event directly.
+        publish = WORKFLOW.with_name("publish.yml").read_text(encoding="utf-8")
+        self.assertIn("workflows: [Quality]", publish)
+        self.assertNotIn("workflows: [Review events]", publish)
+        self.assertNotIn("workflows: [Review status]", publish)
 
     def test_checkout_uses_only_the_event_revision(self) -> None:
         """The Actions branch selector sets the manual run's source and cache scope."""

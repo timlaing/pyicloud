@@ -45,35 +45,6 @@ jobs:
           HAS_SONAR_TOKEN: ${{ secrets.SONAR_TOKEN != '' }}
         run: test "$HAS_SONAR_TOKEN" = true
 
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-          ref: ${{ github.event.workflow_run.head_sha }}
-          # workflow_run runs with the base repository's GITHUB_TOKEN, secrets and
-          # runner, so actions/checkout v7 refuses fork PR code by default and the
-          # scan failed for every fork PR. The untrusted surface is bounded below:
-          # no PR code is executed, symlinks and scanner config are rejected or
-          # removed, and isolated validation runs without the Sonar token.
-          allow-unsafe-pr-checkout: true
-
-      - name: Prepare scan inputs
-        run: |
-          python3 -I - <<'PY'
-          import os
-          from pathlib import Path
-
-          # Do not follow PR-controlled links into runner files or configuration.
-          for root, dirs, files in os.walk('.'):
-              if root == '.':
-                  dirs[:] = [name for name in dirs if name != '.git']
-              for name in dirs + files:
-                  candidate = Path(root) / name
-                  if candidate.is_symlink():
-                      raise SystemExit(f'Symlink is not a scan input: {candidate}')
-          Path('sonar-project.properties').unlink(missing_ok=True)
-          PY
-
       - name: Download coverage report
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
@@ -108,6 +79,52 @@ jobs:
               raise SystemExit('Coverage report contains an entity or invalid encoding')
           # A plain DOCTYPE is allowed for older Cobertura writers.
           ET.fromstring(text)
+          PY
+
+      - name: Validate coverage revision
+        id: coverage-revision
+        run: |
+          set -euo pipefail
+          record="$COVERAGE_DIR/coverage-sha.txt"
+          [[ ! -L "$COVERAGE_DIR" && ! -L "$record" && -f "$record" ]] || { echo "Coverage revision missing or symlinked"; exit 1; }
+          [[ $(wc -c < "$record") -le 128 ]] || { echo "Coverage revision file too large"; exit 1; }
+          recorded="$(tr -d '\r\n' < "$record")"
+          [[ "$recorded" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid coverage revision"; exit 1; }
+          echo "validated-sha=$recorded" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ steps.coverage-revision.outputs.validated-sha }}
+          # workflow_run runs with the base repository's GITHUB_TOKEN, secrets and
+          # runner, so actions/checkout v7 refuses fork PR code by default and the
+          # scan failed for every fork PR. The untrusted surface is bounded below:
+          # no PR code is executed, symlinks and scanner config are rejected or
+          # removed, and isolated validation runs without the Sonar token.
+          allow-unsafe-pr-checkout: true
+
+      - name: Verify checked-out revision
+        env:
+          EXPECTED: ${{ steps.coverage-revision.outputs.validated-sha }}
+        run: |
+          [[ "$(git rev-parse HEAD)" == "$EXPECTED" ]] || { echo "Checkout revision mismatch"; exit 1; }
+
+      - name: Prepare scan inputs
+        run: |
+          python3 -I - <<'PY'
+          import os
+          from pathlib import Path
+
+          # Do not follow PR-controlled links into runner files or configuration.
+          for root, dirs, files in os.walk('.'):
+              if root == '.':
+                  dirs[:] = [name for name in dirs if name != '.git']
+              for name in dirs + files:
+                  candidate = Path(root) / name
+                  if candidate.is_symlink():
+                      raise SystemExit(f'Symlink is not a scan input: {candidate}')
+          Path('sonar-project.properties').unlink(missing_ok=True)
           PY
 
       - name: Validate run metadata
@@ -171,7 +188,7 @@ jobs:
             -Dsonar.python.coverage.reportPaths=${{ env.COVERAGE_DIR }}/coverage.xml
             -Dsonar.working.directory=${{ runner.temp }}/sonar-work-${{ github.run_id }}-${{ github.run_attempt }}
             -Dsonar.python.version=3.10,3.11,3.12,3.13,3.14,3.15
-            -Dsonar.scm.revision=${{ steps.validate.outputs.head-sha }}
+            -Dsonar.scm.revision=${{ steps.coverage-revision.outputs.validated-sha }}
             -Dsonar.qualitygate.wait=true
 
       - name: SonarQube Scan (pull request)
@@ -190,7 +207,7 @@ jobs:
             -Dsonar.python.coverage.reportPaths=${{ env.COVERAGE_DIR }}/coverage.xml
             -Dsonar.working.directory=${{ runner.temp }}/sonar-work-${{ github.run_id }}-${{ github.run_attempt }}
             -Dsonar.python.version=3.10,3.11,3.12,3.13,3.14,3.15
-            -Dsonar.scm.revision=${{ steps.validate.outputs.head-sha }}
+            -Dsonar.scm.revision=${{ steps.coverage-revision.outputs.validated-sha }}
             -Dsonar.pullrequest.key=${{ steps.validate.outputs.pr-number }}
             -Dsonar.pullrequest.branch=${{ steps.validate.outputs.head-ref }}
             -Dsonar.pullrequest.base=${{ steps.validate.outputs.base-ref }}
@@ -277,16 +294,45 @@ jobs:
     timeout-minutes: 5
     permissions:
       statuses: write
+      pull-requests: read
     steps:
       - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         env:
-          PASSED: ${{ needs.sonarqube.result == 'success' && needs.codeql.result == 'success' && needs.review.result == 'success' }}
+          STAGES: ${{ needs.sonarqube.result == 'success' && needs.codeql.result == 'success' && needs.review.result == 'success' }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
         with:
           script: |
-            const passed = process.env.PASSED === 'true';
+            // Re-check approval at publish time: a dismissal between the review
+            // job and this step must not leave a stale successful Quality status.
+            const stages = process.env.STAGES === 'true';
+            const sha = process.env.HEAD_SHA;
+            const isPr = process.env.RUN_EVENT === 'pull_request';
+            let approved = false;
+            if (stages) {
+              const associated = await github.paginate(
+                github.rest.repos.listPullRequestsAssociatedWithCommit,
+                { ...context.repo, commit_sha: sha, per_page: 100 });
+              const candidates = associated.filter(pr =>
+                pr.base.repo.full_name === `${context.repo.owner}/${context.repo.repo}` &&
+                pr.base.ref === 'main' &&
+                (isPr
+                  ? pr.state === 'open' && !pr.draft && pr.head.sha === sha
+                  : pr.merged_at && pr.merge_commit_sha === sha));
+              if (candidates.length === 1) {
+                const reviews = await github.paginate(github.rest.pulls.listReviews, {
+                  ...context.repo, pull_number: candidates[0].number, per_page: 100 });
+                const latest = reviews
+                  .filter(r => r.user?.login === 'coderabbitai[bot]' &&
+                    r.commit_id === candidates[0].head.sha && r.state !== 'COMMENTED')
+                  .at(-1);
+                approved = latest?.state === 'APPROVED';
+              }
+            }
+            const passed = stages && approved;
             await github.rest.repos.createCommitStatus({
-              ...context.repo, sha: context.payload.workflow_run.head_sha,
+              ...context.repo, sha,
               context: "Quality", state: passed ? "success" : "failure",
               target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });
-            if (!passed) core.setFailed('SonarQube, CodeQL, and CodeRabbit approval must all pass.');
+            if (!passed) core.setFailed('SonarQube, CodeQL, and a current-head CodeRabbit approval must all pass.');
