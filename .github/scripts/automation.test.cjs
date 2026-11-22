@@ -495,3 +495,27 @@ test("publication rechecks evidence and never trusts the saved result", async ()
   const states = f.calls.filter(([name]) => name === "status").map(([, args]) => args.state);
   assert.deepEqual(states, ["success"]);
 });
+
+test("publication ignores a superseded pending status", async () => {
+  const f = fixture();
+  const publishBlock = observerText.split("      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9").at(-1).split("          script: |\n")[1];
+  const publishScript = publishBlock.split("\n").map(line => line.startsWith("            ") ? line.slice(12) : line).join("\n");
+  const runPublish = new (Object.getPrototypeOf(async function () {}).constructor)("github", "context", "core", "require", "process", publishScript);
+  const context = {
+    repo: { owner: "owner", repo: "repo" },
+    payload: { workflow_run: { event: "pull_request", head_sha: sha } },
+    serverUrl: "https://github.com", runId: 99,
+  };
+  f.responses.statuses = [
+    {id: 1, context: "Review notifier policy", creator: {login: "github-actions[bot]"}, state: "pending"},
+    {id: 2, context: "Review notifier policy", creator: {login: "github-actions[bot]"}, state: "success"},
+    {id: 3, context: "Quality", creator: {login: "github-actions[bot]"}, state: "pending"},
+  ];
+  f.responses.reviews = [{user: {login: "coderabbitai[bot]"}, commit_id: sha, state: "APPROVED"}];
+  await runPublish(
+    f.github, context, {info() {}, error() {}},
+    () => ({notifierProof: async () => true}), {env: {HEAD: sha}},
+  );
+  const states = f.calls.filter(([name]) => name === "status").map(([, args]) => args.state);
+  assert.deepEqual(states, ["success"]);
+});

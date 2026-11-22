@@ -127,15 +127,26 @@ jobs:
                   github.rest.checks.listForRef,
                   { ...context.repo, ref, filter: "latest", per_page: 100 })));
                 const checks = groups.flat();
-                const required = ["CI passed", "SonarCloud", "CodeQL"];
-                const checksPass = required.every(name => checks.some(c =>
-                  c.name === name && c.status === "completed" && c.conclusion === "success")) &&
+                const successful = c => c.status === "completed" && c.conclusion === "success";
+                // Check names are those reported by the workflows: sonarqube and
+                // one Analyze (<language>) per CodeQL matrix entry.
+                const checksPass = checks.some(c => c.name === "CI passed" && successful(c)) &&
+                  checks.some(c => ["sonarqube", "SonarCloud"].includes(c.name) && successful(c)) &&
+                  checks.some(c => (c.name === "CodeQL" || /^Analyze \(.+\)$/.test(c.name)) && successful(c)) &&
                   checks.every(c => c.status === "completed" && ["success", "skipped"].includes(c.conclusion));
                 const statusGroups = await Promise.all(refs.map(ref => github.paginate(
                   github.rest.repos.listCommitStatusesForRef,
                   { ...context.repo, ref, per_page: 100 })));
                 const headStatuses = statusGroups[refs.indexOf(pr.head.sha)] || [];
-                const statuses = statusGroups.flat().filter(s => s.context !== "Quality");
+                // Keep only the newest status per revision, producer and context;
+                // a superseded pending must not mask a current success.
+                const newest = new Map();
+                statusGroups.forEach((group, index) => group.forEach(status => {
+                  const key = `${refs[index]}:${status.creator?.login ?? status.creator?.id}:${status.context}`;
+                  const prior = newest.get(key);
+                  if (!prior || status.id > prior.id) newest.set(key, status);
+                }));
+                const statuses = [...newest.values()].filter(s => s.context !== "Quality");
                 const statusesPass = statuses.every(s => s.state === "success") &&
                   await review.notifierProof(github, context, pr, headStatuses);
                 const reviews = await github.paginate(github.rest.pulls.listReviews, {
