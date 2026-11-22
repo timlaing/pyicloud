@@ -81,67 +81,6 @@ jobs:
           ET.fromstring(text)
           PY
 
-      - name: Validate coverage revision
-        id: coverage-revision
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RUN_EVENT: ${{ github.event.workflow_run.event }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
-        run: |
-          set -euo pipefail
-          record="$COVERAGE_DIR/coverage-sha.txt"
-          [[ ! -L "$COVERAGE_DIR" && ! -L "$record" && -f "$record" ]] || { echo "Coverage revision missing or symlinked"; exit 1; }
-          [[ $(wc -c < "$record") -le 128 ]] || { echo "Coverage revision file too large"; exit 1; }
-          recorded="$(tr -d '\r\n' < "$record")"
-          [[ "$recorded" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid coverage revision"; exit 1; }
-          # Bind the artifact to the revision the triggering run actually tested:
-          # the event commit for pushes, the exact merge revision for PRs.
-          if [[ "$RUN_EVENT" == "push" ]]; then
-            expected="$HEAD_SHA"
-          else
-            [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || { echo "Missing PR number"; exit 1; }
-            expected="$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER" --jq .merge_commit_sha)"
-          fi
-          [[ "$recorded" == "$expected" ]] || { echo "Coverage revision does not match the triggering run"; exit 1; }
-          echo "validated-sha=$recorded" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-          ref: ${{ steps.coverage-revision.outputs.validated-sha }}
-          # workflow_run runs with the base repository's GITHUB_TOKEN, secrets and
-          # runner, so actions/checkout v7 refuses fork PR code by default and the
-          # scan failed for every fork PR. The untrusted surface is bounded below:
-          # no PR code is executed, symlinks and scanner config are rejected or
-          # removed, and isolated validation runs without the Sonar token.
-          allow-unsafe-pr-checkout: true
-
-      - name: Verify checked-out revision
-        env:
-          EXPECTED: ${{ steps.coverage-revision.outputs.validated-sha }}
-        run: |
-          [[ "$(git rev-parse HEAD)" == "$EXPECTED" ]] || { echo "Checkout revision mismatch"; exit 1; }
-
-      - name: Prepare scan inputs
-        run: |
-          python3 -I - <<'PY'
-          import os
-          from pathlib import Path
-
-          # Do not follow PR-controlled links into runner files or configuration.
-          for root, dirs, files in os.walk('.'):
-              if root == '.':
-                  dirs[:] = [name for name in dirs if name != '.git']
-              for name in dirs + files:
-                  candidate = Path(root) / name
-                  if candidate.is_symlink():
-                      raise SystemExit(f'Symlink is not a scan input: {candidate}')
-          Path('sonar-project.properties').unlink(missing_ok=True)
-          PY
-
       - name: Validate run metadata
         id: validate
         env:
@@ -186,6 +125,72 @@ jobs:
             echo "head-ref=$HEAD_REF"
             echo "base-ref=$BASE_REF"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Validate coverage revision
+        id: coverage-revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PR_NUMBER: ${{ steps.validate.outputs.pr-number }}
+        run: |
+          set -euo pipefail
+          record="$COVERAGE_DIR/coverage-sha.txt"
+          [[ ! -L "$COVERAGE_DIR" && ! -L "$record" && -f "$record" ]] || { echo "Coverage revision missing or symlinked"; exit 1; }
+          [[ $(wc -c < "$record") -le 128 ]] || { echo "Coverage revision file too large"; exit 1; }
+          recorded="$(tr -d '\r\n' < "$record")"
+          [[ "$recorded" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid coverage revision"; exit 1; }
+          # Bind the artifact to the revision the triggering run actually tested.
+          # For pushes that is the event commit. For PRs, resolve the merge
+          # revision only after confirming the PR still has the immutable
+          # triggering head, so a moved head cannot supply a different revision.
+          if [[ "$RUN_EVENT" == "push" ]]; then
+            expected="$HEAD_SHA"
+          else
+            [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || { echo "Missing PR number"; exit 1; }
+            pr_json="$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER")"
+            pr_head="$(jq -r .head.sha <<< "$pr_json")"
+            [[ "$pr_head" == "$HEAD_SHA" ]] || { echo "Triggering PR head changed"; exit 1; }
+            expected="$(jq -r .merge_commit_sha <<< "$pr_json")"
+          fi
+          [[ "$recorded" == "$expected" ]] || { echo "Coverage revision does not match the triggering run"; exit 1; }
+          echo "validated-sha=$recorded" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ steps.coverage-revision.outputs.validated-sha }}
+          # workflow_run runs with the base repository's GITHUB_TOKEN, secrets and
+          # runner, so actions/checkout v7 refuses fork PR code by default and the
+          # scan failed for every fork PR. The untrusted surface is bounded below:
+          # no PR code is executed, symlinks and scanner config are rejected or
+          # removed, and isolated validation runs without the Sonar token.
+          allow-unsafe-pr-checkout: true
+
+      - name: Verify checked-out revision
+        env:
+          EXPECTED: ${{ steps.coverage-revision.outputs.validated-sha }}
+        run: |
+          [[ "$(git rev-parse HEAD)" == "$EXPECTED" ]] || { echo "Checkout revision mismatch"; exit 1; }
+
+      - name: Prepare scan inputs
+        run: |
+          python3 -I - <<'PY'
+          import os
+          from pathlib import Path
+
+          # Do not follow PR-controlled links into runner files or configuration.
+          for root, dirs, files in os.walk('.'):
+              if root == '.':
+                  dirs[:] = [name for name in dirs if name != '.git']
+              for name in dirs + files:
+                  candidate = Path(root) / name
+                  if candidate.is_symlink():
+                      raise SystemExit(f'Symlink is not a scan input: {candidate}')
+          Path('sonar-project.properties').unlink(missing_ok=True)
+          PY
 
       - name: SonarQube Scan (branch)
         if: github.event.workflow_run.event == 'push'
