@@ -66,6 +66,7 @@ module.exports = async ({
       pr.base.ref === "main" &&
       (pullRequestEvent
         ? pr.state === "open" &&
+          !pr.draft &&
           (pr.head.sha === triggerSha || pr.merge_commit_sha === triggerSha)
         : pr.merged_at && pr.merge_commit_sha === triggerSha),
   );
@@ -164,8 +165,11 @@ module.exports = async ({
     const required = ["CI passed", "SonarCloud", "CodeQL", "Review notifier policy"];
     const passed = required.every((name) => {
       const expectedApp = ["CI passed", "Review notifier policy"].includes(name) ? "github-actions" : "github-advanced-security";
-      const check = [...latestChecks.values()].find(item => item.name === name && item.app?.slug === expectedApp);
-      if (name !== "Review notifier policy" && check) return check.status === "completed" && check.conclusion === "success";
+      if (name !== "Review notifier policy")
+        return [...latestChecks.values()].some(
+          item => item.name === name && item.app?.slug === expectedApp &&
+            item.status === "completed" && item.conclusion === "success",
+        );
       const status = [...latestStatuses.values()].find(item => item.context === name && item.creator?.login === expectedApp + "[bot]");
       return status?.state === "success";
     });
@@ -230,6 +234,9 @@ module.exports = async ({
       // The merge commit can change while validation is in flight; do not pin a
       // review request to a revision that has already been superseded.
       if (current.merge_commit_sha !== mergeSha) return false;
+      // Re-validate the exact head and merge revisions immediately before the
+      // request so a regressed check cannot leave a stale review in flight.
+      if (!(await validationPassed(current))) return false;
       const { data } = await github.rest.issues.createComment({
         owner,
         repo,

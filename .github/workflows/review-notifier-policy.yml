@@ -244,9 +244,17 @@ jobs:
             for (const update of JSON.parse(process.env.CHANGED_ACTIONS)) {
               const [owner, repo] = update.repository.split('/');
               const { data: repository } = await github.rest.repos.get({ owner, repo });
-              const { data: comparison } = await github.rest.repos.compareCommitsWithBasehead({
-                owner, repo, basehead: update.sha + '...' + repository.default_branch
-              });
+              let comparison;
+              try {
+                comparison = (await github.rest.repos.compareCommitsWithBasehead({
+                  owner, repo, basehead: update.sha + '...' + repository.default_branch
+                })).data;
+              } catch (error) {
+                // A missing or unreachable commit is simply not an ancestor;
+                // the official release-tag check below still applies.
+                if (error.status !== 404) throw error;
+                comparison = { status: 'diverged' };
+              }
               if (['ahead', 'identical'].includes(comparison.status)) continue;
               const tags = await github.paginate(github.rest.repos.listTags, { owner, repo, per_page: 100 });
               if (!tags.some(tag => tag.commit.sha === update.sha))

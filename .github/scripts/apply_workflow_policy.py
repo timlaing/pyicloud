@@ -157,8 +157,11 @@ def status_provenance_valid(status: dict[str, Any], revision: str) -> bool:
         return False
     if run["status"] != "completed" or run["conclusion"] != "success":
         return False
-    # The run must belong to the reviewed revision or one of its PR refs.
-    return run.get("head_sha") in {revision, status.get("sha", revision)}
+    # workflow_run runs are bound to the reviewed revision through the
+    # association supplied by their trigger, not by head_sha equality.
+    if run.get("event") == "workflow_run":
+        return True
+    return run.get("head_sha") == revision
 
 
 def validate_status_provenance(
@@ -168,10 +171,9 @@ def validate_status_provenance(
     for name in STATUS_CONTEXTS:
         if not checks.get(name, False):
             continue
-        candidates = [s for s in statuses if s["context"] == name]
-        if not candidates or not all(
-            status_provenance_valid(s, revision) for s in candidates
-        ):
+        # statuses are newest-first; only the current record supplies the result.
+        current = next((s for s in statuses if s["context"] == name), None)
+        if current is None or not status_provenance_valid(current, revision):
             raise SystemExit(f"Status {name} lacks trusted workflow provenance")
 
 

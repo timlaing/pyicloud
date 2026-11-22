@@ -577,6 +577,16 @@ class EvidenceTests(unittest.TestCase):
                 ),
             ),
             (
+                "old targetless pending does not invalidate current success",
+                "a" * 40,
+                lambda data: data["statuses"].append({
+                    "id": 98,
+                    "context": policy["required_checks"][1],
+                    "creator": {"login": "github-actions[bot]"},
+                    "state": "pending",
+                }),
+            ),
+            (
                 "status cannot override failed check run",
                 "a" * 40,
                 lambda data: (
@@ -640,7 +650,13 @@ class EvidenceTests(unittest.TestCase):
                 patch.object(POLICY, "api", side_effect=fake_api(data)),
             ):
                 expected = (
-                    nullcontext() if label == "valid" else self.assertRaises(SystemExit)
+                    nullcontext()
+                    if label
+                    in {
+                        "valid",
+                        "old targetless pending does not invalidate current success",
+                    }
+                    else self.assertRaises(SystemExit)
                 )
                 with expected:
                     POLICY.validate_hosted_checks(policy, revision)

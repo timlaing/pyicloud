@@ -287,7 +287,8 @@ jobs:
     name: CodeRabbit review
     needs: [sonarqube, codeql]
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Covers the 40-minute validation window plus the 40-minute review window.
+    timeout-minutes: 90
     permissions:
       contents: read
       pull-requests: write

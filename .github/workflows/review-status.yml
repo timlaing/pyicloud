@@ -84,7 +84,7 @@ jobs:
   publish:
     name: Publish Quality result
     needs: recheck
-    if: needs.recheck.outputs.result != ''
+    if: always() && needs.recheck.outputs.sha != '' && needs.recheck.outputs.result != ''
     runs-on: ubuntu-latest
     timeout-minutes: 5
     concurrency:
