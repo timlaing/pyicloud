@@ -49,6 +49,15 @@ class PyiCloudAPIResponseException(PyiCloudException):
         super().__init__(message)
 
 
+def is_server_error(error: PyiCloudAPIResponseException) -> bool:
+    """Whether an API error carries an Apple HTTP 5xx response."""
+    response = getattr(error, "response", None)
+    status = getattr(response, "status_code", None)
+    if status is None:
+        status = error.code
+    return isinstance(status, int) and 500 <= status < 600
+
+
 class PyiCloudServiceNotActivatedException(PyiCloudAPIResponseException):
     """iCloud service not activated exception."""
 

@@ -793,7 +793,12 @@ class PyiCloudService:
             self._authenticate_with_token(require_trust=False)
         except PyiCloudAccountLockedException:
             raise
-        except (PyiCloudAPIResponseException, PyiCloudFailedLoginException):
+        except PyiCloudAPIResponseException as error:
+            if _is_auth_server_error(error):
+                _raise_auth_server_error(error)
+            LOGGER.debug("Paused session-token login failed; falling back to MFA flow.")
+            return False
+        except PyiCloudFailedLoginException:
             LOGGER.debug("Paused session-token login failed; falling back to MFA flow.")
             return False
         return True
@@ -1637,7 +1642,12 @@ class PyiCloudService:
         except PyiCloudConnectionException:
             # Apple never answered, so the session was not refused.
             raise
-        except (PyiCloudAPIResponseException, PyiCloud2FARequiredException):
+        except PyiCloudAPIResponseException as error:
+            if _is_auth_server_error(error):
+                _raise_auth_server_error(error)
+            LOGGER.error("Session trust failed.")
+            return False
+        except PyiCloud2FARequiredException:
             LOGGER.error("Session trust failed.")
             return False
 

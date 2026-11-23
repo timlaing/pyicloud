@@ -2136,6 +2136,14 @@ def test_devices_without_one_factor_uses_the_stored_session() -> None:
         ),
         (PyiCloudConnectionException("No route to host"), "Could not reach iCloud"),
         (PyiCloudFailedLoginException("Denied"), "Bad username or password"),
+        (
+            PyiCloudAPIResponseException(
+                "upstream error",
+                503,
+                MagicMock(status_code=503, text=""),
+            ),
+            "iCloud is unavailable right now",
+        ),
     ],
 )
 def test_devices_one_factor_maps_login_failures_to_aborts(
@@ -3409,6 +3417,54 @@ def test_auth_login_explicit_password_does_not_delete_stored_keyring_secret() ->
 
     assert result.exit_code != 0
     assert str(result.exception) == "Bad username or password for user@example.com"
+    delete_password.assert_not_called()
+
+
+def test_auth_login_server_error_does_not_delete_stored_keyring_secret() -> None:
+    """An Apple 5xx during login is an outage, not a stale stored password."""
+    error = PyiCloudAPIResponseException(
+        "upstream error", 503, MagicMock(status_code=503, text="")
+    )
+
+    with (
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(
+            context_module,
+            "PyiCloudService",
+            side_effect=error,
+        ),
+        patch.object(context_module, "confirm", return_value=False),
+        patch.object(
+            context_module.utils, "password_exists_in_keyring", return_value=True
+        ),
+        patch.object(
+            context_module.utils,
+            "get_password_from_keyring",
+            return_value="stored-secret",
+        ),
+        patch.object(
+            context_module.utils, "delete_password_in_keyring"
+        ) as delete_password,
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "auth",
+                "login",
+                "--username",
+                "user@example.com",
+                "--password",
+                "secret",
+                "--non-interactive",
+                "--session-dir",
+                str(_unique_session_dir("auth-login-outage")),
+            ],
+        )
+
+    assert result.exit_code != 0
+    assert "iCloud is unavailable right now" in str(result.exception)
     delete_password.assert_not_called()
 
 

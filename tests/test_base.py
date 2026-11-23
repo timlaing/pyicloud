@@ -364,6 +364,38 @@ def test_account_login_400_remains_failed_token(
     assert excinfo.value.__cause__ is error
 
 
+def test_paused_token_login_propagates_server_error(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """A 5xx during a paused token login must not force the MFA flow."""
+    pyicloud_service.session._data = {"session_token": "cached-token"}
+    error = _auth_5xx(503)
+
+    with (
+        patch.object(pyicloud_service, "_authenticate_with_token", side_effect=error),
+        pytest.raises(PyiCloudAPIResponseException) as excinfo,
+    ):
+        pyicloud_service._login_with_paused_token()
+    assert excinfo.value.code == 503
+    assert excinfo.value.__cause__ is error
+
+
+def test_trust_session_propagates_server_error(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """A 5xx while trusting a session must not be reported as trust refusal."""
+    error = _auth_5xx(502)
+
+    with (
+        patch.object(pyicloud_service.session, "get", return_value=MagicMock()),
+        patch.object(pyicloud_service, "_authenticate_with_token", side_effect=error),
+        pytest.raises(PyiCloudAPIResponseException) as excinfo,
+    ):
+        pyicloud_service.trust_session()
+    assert excinfo.value.code == 502
+    assert excinfo.value.__cause__ is error
+
+
 def test_get_auth_status_without_session_token(
     pyicloud_service: PyiCloudService,
 ) -> None:
