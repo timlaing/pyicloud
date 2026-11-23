@@ -6101,6 +6101,31 @@ def test_main_returns_clean_error_for_expected_cli_error(
     assert captured.err == f"{message}\n"
 
 
+def test_main_reports_server_error_without_traceback(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A classified Apple 5xx at the top level gets a retry hint."""
+    error = PyiCloudAPIResponseException(
+        "upstream error", 503, MagicMock(status_code=503, text="")
+    )
+
+    with patch.object(cli_module, "app", side_effect=error):
+        code = cli_module.main()
+    assert code == 1
+    assert "iCloud is unavailable right now" in capsys.readouterr().err
+
+
+def test_main_reraises_non_server_api_error() -> None:
+    """Only classified 5xx errors are swallowed at the top level."""
+    error = PyiCloudAPIResponseException("bad request", 400)
+
+    with (
+        patch.object(cli_module, "app", side_effect=error),
+        pytest.raises(PyiCloudAPIResponseException),
+    ):
+        cli_module.main()
+
+
 def _advertised_webservices() -> dict[str, Any]:
     """Return a map advertising every key the library needs."""
 
