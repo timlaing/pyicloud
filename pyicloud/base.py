@@ -10,7 +10,7 @@ from os import chmod, environ, makedirs, path, umask
 from tempfile import gettempdir
 from threading import Event
 import time
-from typing import Any, Optional, cast
+from typing import Any, NoReturn, Optional, cast
 from urllib.parse import urlparse
 from uuid import uuid1
 
@@ -95,6 +95,34 @@ from pyicloud.utils import (
 )
 
 LOGGER: logging.Logger = logging.getLogger(__name__)
+
+
+def _auth_error_status(error: BaseException) -> int | None:
+    """Return an HTTP status carried by an API or HTTP error, if any."""
+    response = getattr(error, "response", None)
+    status = getattr(response, "status_code", None)
+    if status is None:
+        status = getattr(error, "status_code", None)
+    return status if isinstance(status, int) else None
+
+
+def _is_auth_server_error(error: BaseException) -> bool:
+    """Whether an authentication failure came from an Apple 5xx response."""
+    status = _auth_error_status(error)
+    return status is not None and 500 <= status < 600
+
+
+def _raise_auth_server_error(error: BaseException) -> NoReturn:
+    """Surface an Apple 5xx during authentication without blaming the caller."""
+    response = getattr(error, "response", None)
+    status = _auth_error_status(error)
+    raise PyiCloudAPIResponseException(
+        f"Apple authentication service error (HTTP {status}).",
+        status,
+        response,
+    ) from error
+
+
 PCS_SLEEP_TIME: int = 5
 PCS_MAX_RETRIES: int = 10
 PCS_ACCESS_ERROR: str = "Unable to request PCS access!"
@@ -421,10 +449,14 @@ class PyiCloudService:
             return False
         try:
             self.data = self._validate_token()
-        except (
-            PyiCloudAPIResponseException,
-            PyiCloudAuthRequiredException,
-        ):
+        except PyiCloudAPIResponseException as error:
+            # A 5xx from /validate says nothing about the cached token. Reusing
+            # it after an outage is preferable to a full reauthentication storm.
+            if _is_auth_server_error(error):
+                _raise_auth_server_error(error)
+            LOGGER.debug("Invalid authentication token, will log in from scratch.")
+            return False
+        except PyiCloudAuthRequiredException:
             LOGGER.debug("Invalid authentication token, will log in from scratch.")
             return False
         if not self.is_trusted_session and not pause_2fa:
@@ -810,6 +842,8 @@ class PyiCloudService:
             # Not a credentials problem; let it through as itself.
             raise
         except (PyiCloudAPIResponseException, HTTPError) as error:
+            if _is_auth_server_error(error):
+                _raise_auth_server_error(error)
             msg = "Invalid authentication token."
             raise PyiCloudFailedLoginException(msg, error) from error
 
@@ -831,6 +865,8 @@ class PyiCloudService:
             # Not a credentials problem; let it through as itself.
             raise
         except PyiCloudAPIResponseException as error:
+            if _is_auth_server_error(error):
+                _raise_auth_server_error(error)
             msg = "Invalid email/password combination."
             raise PyiCloudFailedLoginException(msg, error) from error
 
