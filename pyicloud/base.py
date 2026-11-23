@@ -10,7 +10,7 @@ from os import chmod, environ, makedirs, path, umask
 from tempfile import gettempdir
 from threading import Event
 import time
-from typing import Any, Optional, cast
+from typing import Any, NoReturn, Optional, cast
 from urllib.parse import urlparse
 from uuid import uuid1
 
@@ -94,6 +94,30 @@ from pyicloud.utils import (
 )
 
 LOGGER: logging.Logger = logging.getLogger(__name__)
+
+
+def _is_srp_server_error(error: BaseException) -> bool:
+    """Whether an SRP failure carried an Apple HTTP 5xx response."""
+    response = getattr(error, "response", None)
+    status = getattr(response, "status_code", None)
+    if status is None:
+        status = getattr(error, "status_code", None)
+    return isinstance(status, int) and 500 <= status < 600
+
+
+def _raise_srp_server_error(error: BaseException) -> NoReturn:
+    """Surface an Apple 5xx during sign-in without blaming the credentials."""
+    response = getattr(error, "response", None)
+    status = getattr(response, "status_code", None)
+    if status is None:
+        status = getattr(error, "status_code", None)
+    raise PyiCloudAPIResponseException(
+        f"Apple sign-in service error (HTTP {status}).",
+        status,
+        response,
+    ) from error
+
+
 PCS_SLEEP_TIME: int = 5
 PCS_MAX_RETRIES: int = 10
 PCS_ACCESS_ERROR: str = "Unable to request PCS access!"
@@ -682,6 +706,8 @@ class PyiCloudService:
             HTTPError,
             PyiCloudPasswordException,
         ) as error:
+            if _is_srp_server_error(error):
+                _raise_srp_server_error(error)
             msg = "Failed to initiate srp authentication."
             raise PyiCloudFailedLoginException(msg, error) from error
 
@@ -742,6 +768,8 @@ class PyiCloudService:
             # Not a credentials problem; let it through as itself.
             raise
         except PyiCloudAPIResponseException as error:
+            if _is_srp_server_error(error):
+                _raise_srp_server_error(error)
             msg = "Invalid email/password combination."
             raise PyiCloudFailedLoginException(msg) from error
         return False

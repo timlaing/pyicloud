@@ -4299,6 +4299,125 @@ def test_srp_completion_does_not_blame_credentials_for_an_outage(
             pyicloud_service._srp_authentication()
 
 
+@pytest.mark.parametrize("status", [500, 502, 503])
+@pytest.mark.parametrize("kind", ["api", "http"])
+def test_srp_init_server_error_is_not_a_login_failure(
+    pyicloud_service: PyiCloudService, status: int, kind: str
+) -> None:
+    """HTTP 5xx from signin/init stays a service error, not a credential error."""
+    authorize_response = MagicMock()
+    authorize_response.raise_for_status = MagicMock()
+    response = MagicMock(spec=Response)
+    response.status_code = status
+    response.text = f"server error {status}"
+    error: PyiCloudAPIResponseException | HTTPError
+    if kind == "api":
+        error = PyiCloudAPIResponseException("upstream error", status, response)
+    else:
+        error = HTTPError(f"{status} error", response=response)
+
+    with (
+        patch("pyicloud.base.PyiCloudSession") as mock_session,
+        patch("pyicloud.base.srp.rfc5054_enable"),
+        patch("pyicloud.base.srp.no_username_in_x"),
+        patch("pyicloud.base.srp.User") as mock_srp_user_cls,
+    ):
+        mock_usr = MagicMock()
+        mock_usr.start_authentication.return_value = ("uname", b"\x02" * 32)
+        mock_usr.process_challenge.return_value = b"\x03" * 32
+        mock_usr.H_AMK = b"\x04" * 32
+        mock_srp_user_cls.return_value = mock_usr
+
+        pyicloud_service._session = mock_session
+        mock_session.data = {}
+        mock_session.get.return_value = authorize_response
+        mock_session.post.side_effect = error
+
+        with pytest.raises(PyiCloudAPIResponseException) as excinfo:
+            pyicloud_service._srp_authentication()
+        assert not isinstance(excinfo.value, PyiCloudFailedLoginException)
+        assert excinfo.value.code == status
+        assert excinfo.value.response is response
+        assert excinfo.value.__cause__ is error
+
+
+@pytest.mark.parametrize("status", [500, 502, 503])
+def test_srp_complete_server_error_is_not_a_login_failure(
+    pyicloud_service: PyiCloudService, status: int
+) -> None:
+    """HTTP 5xx from signin/complete stays a service error."""
+    authorize_response = MagicMock()
+    authorize_response.raise_for_status = MagicMock()
+    init_response = MagicMock()
+    init_response.raise_for_status = MagicMock()
+    init_response.json.return_value = {
+        "salt": base64.b64encode(b"\x00" * 32).decode(),
+        "b": base64.b64encode(b"\x01" * 256).decode(),
+        "c": "session_context",
+        "iteration": 1000,
+        "protocol": "s2k",
+    }
+    response = MagicMock(spec=Response)
+    response.status_code = status
+    response.text = f"server error {status}"
+    error = PyiCloudAPIResponseException("upstream error", status, response)
+
+    with (
+        patch("pyicloud.base.PyiCloudSession") as mock_session,
+        patch("pyicloud.base.srp.rfc5054_enable"),
+        patch("pyicloud.base.srp.no_username_in_x"),
+        patch("pyicloud.base.srp.User") as mock_srp_user_cls,
+    ):
+        mock_usr = MagicMock()
+        mock_usr.start_authentication.return_value = ("uname", b"\x02" * 32)
+        mock_usr.process_challenge.return_value = b"\x03" * 32
+        mock_usr.H_AMK = b"\x04" * 32
+        mock_srp_user_cls.return_value = mock_usr
+
+        pyicloud_service._session = mock_session
+        mock_session.data = {}
+        mock_session.get.return_value = authorize_response
+        mock_session.post.side_effect = [init_response, error]
+
+        with pytest.raises(PyiCloudAPIResponseException) as excinfo:
+            pyicloud_service._srp_authentication()
+        assert not isinstance(excinfo.value, PyiCloudFailedLoginException)
+        assert excinfo.value.code == status
+        assert excinfo.value.response is response
+        assert excinfo.value.__cause__ is error
+
+
+def test_srp_init_400_remains_a_failed_login(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """A 400 (including -900007/iteration zero) is not treated as an outage."""
+    authorize_response = MagicMock()
+    authorize_response.raise_for_status = MagicMock()
+    response = MagicMock(spec=Response)
+    response.status_code = 400
+    response.text = '{"error": -900007, "iteration": 0}'
+    error = PyiCloudAPIResponseException("bad request", 400, response)
+
+    with (
+        patch("pyicloud.base.PyiCloudSession") as mock_session,
+        patch("pyicloud.base.srp.rfc5054_enable"),
+        patch("pyicloud.base.srp.no_username_in_x"),
+        patch("pyicloud.base.srp.User") as mock_srp_user_cls,
+    ):
+        mock_usr = MagicMock()
+        mock_usr.start_authentication.return_value = ("uname", b"\x02" * 32)
+        mock_srp_user_cls.return_value = mock_usr
+
+        pyicloud_service._session = mock_session
+        mock_session.data = {}
+        mock_session.get.return_value = authorize_response
+        mock_session.post.side_effect = error
+
+        with pytest.raises(PyiCloudFailedLoginException) as excinfo:
+            pyicloud_service._srp_authentication()
+        assert excinfo.value.__cause__ is error
+
+
 def test_authenticate_skips_token_auth_after_srp_2fa_required(
     pyicloud_service: PyiCloudService,
 ) -> None:

@@ -30,6 +30,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Preserve Apple HTTP 5xx failures during SRP sign-in as service/API errors instead of reporting them as invalid credentials. Confirmed credential rejections, account locks, MFA challenges and connection failures keep their existing exception types.
 - Cache successful PCS queries for six hours for Photos, Drive, Notes, and Reminders instead of
   repeatedly prompting for Advanced Data Protection consent during polling.
   Refresh expired queries, clear cached results on authentication reset, and
