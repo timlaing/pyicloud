@@ -262,6 +262,31 @@ class PhoneNumberVerification:
         return None
 
 
+def _is_server_error(error: Exception) -> bool:
+    """Return True if the error represents an HTTP 5xx server failure."""
+    if isinstance(error, PyiCloudServiceUnavailable):
+        return True
+    if isinstance(error, PyiCloudAPIResponseException):
+        if isinstance(error.code, int) and error.code >= 500:
+            return True
+        if (
+            isinstance(error.code, str)
+            and error.code.isdigit()
+            and int(error.code) >= 500
+        ):
+            return True
+        if (
+            error.response is not None
+            and getattr(error.response, "status_code", 0) >= 500
+        ):
+            return True
+    return bool(
+        isinstance(error, HTTPError)
+        and error.response is not None
+        and getattr(error.response, "status_code", 0) >= 500
+    )
+
+
 class PyiCloudService:
     """
     A base authentication class for the iCloud service. Handles the
@@ -718,6 +743,8 @@ class PyiCloudService:
             HTTPError,
             PyiCloudPasswordException,
         ) as error:
+            if _is_server_error(error):
+                raise
             msg = "Failed to initiate srp authentication."
             raise PyiCloudFailedLoginException(msg, error) from error
 
@@ -777,7 +804,9 @@ class PyiCloudService:
         except PyiCloudConnectionException:
             # Not a credentials problem; let it through as itself.
             raise
-        except PyiCloudAPIResponseException as error:
+        except (PyiCloudAPIResponseException, HTTPError) as error:
+            if _is_server_error(error):
+                raise
             msg = "Invalid email/password combination."
             raise PyiCloudFailedLoginException(msg) from error
         return False

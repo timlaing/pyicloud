@@ -4825,6 +4825,109 @@ def test_srp_completion_does_not_blame_credentials_for_an_outage(
             pyicloud_service._srp_authentication()
 
 
+@pytest.mark.parametrize("status_code", [500, 502, 503])
+@pytest.mark.parametrize("error_type", ["api_response", "http_error"])
+def test_srp_init_preserves_server_failures(
+    pyicloud_service: PyiCloudService, status_code: int, error_type: str
+) -> None:
+    """SRP init must propagate an HTTP 5xx outage, not blame credentials."""
+    authorize_response = MagicMock()
+    authorize_response.raise_for_status = MagicMock()
+
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.text = f"Server Error {status_code}"
+
+    if error_type == "api_response":
+        err: Exception = PyiCloudAPIResponseException(
+            "Server error", code=status_code, response=resp
+        )
+    else:
+        err = HTTPError(response=resp)
+
+    with (
+        patch("pyicloud.base.PyiCloudSession") as mock_session,
+        patch("pyicloud.base.srp.rfc5054_enable"),
+        patch("pyicloud.base.srp.no_username_in_x"),
+        patch("pyicloud.base.srp.User") as mock_srp_user_cls,
+    ):
+        mock_usr = MagicMock()
+        mock_usr.start_authentication.return_value = ("uname", b"\x02" * 32)
+        mock_srp_user_cls.return_value = mock_usr
+
+        pyicloud_service._session = mock_session
+        mock_session.data = {}
+        mock_session.get.return_value = authorize_response
+        mock_session.post.side_effect = err
+
+        with pytest.raises((PyiCloudAPIResponseException, HTTPError)) as exc_info:
+            pyicloud_service._srp_authentication()
+
+        assert not isinstance(exc_info.value, PyiCloudFailedLoginException)
+        if isinstance(exc_info.value, PyiCloudAPIResponseException):
+            assert exc_info.value.code == status_code
+        else:
+            assert isinstance(exc_info.value, HTTPError)
+            assert exc_info.value.response.status_code == status_code
+
+
+@pytest.mark.parametrize("status_code", [500, 502, 503])
+@pytest.mark.parametrize("error_type", ["api_response", "http_error"])
+def test_srp_completion_preserves_server_failures(
+    pyicloud_service: PyiCloudService, status_code: int, error_type: str
+) -> None:
+    """SRP completion must propagate an HTTP 5xx outage, not blame credentials."""
+    init_response = MagicMock()
+    init_response.raise_for_status = MagicMock()
+    init_response.json.return_value = {
+        "salt": base64.b64encode(b"\x00" * 32).decode(),
+        "b": base64.b64encode(b"\x01" * 256).decode(),
+        "c": "session_context",
+        "iteration": 1000,
+        "protocol": "s2k",
+    }
+    authorize_response = MagicMock()
+    authorize_response.raise_for_status = MagicMock()
+
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.text = f"Server Error {status_code}"
+
+    if error_type == "api_response":
+        err: Exception = PyiCloudAPIResponseException(
+            "Server error", code=status_code, response=resp
+        )
+    else:
+        err = HTTPError(response=resp)
+
+    with (
+        patch("pyicloud.base.PyiCloudSession") as mock_session,
+        patch("pyicloud.base.srp.rfc5054_enable"),
+        patch("pyicloud.base.srp.no_username_in_x"),
+        patch("pyicloud.base.srp.User") as mock_srp_user_cls,
+    ):
+        mock_usr = MagicMock()
+        mock_usr.start_authentication.return_value = ("uname", b"\x02" * 32)
+        mock_usr.process_challenge.return_value = b"\x03" * 32
+        mock_usr.H_AMK = b"\x04" * 32
+        mock_srp_user_cls.return_value = mock_usr
+
+        pyicloud_service._session = mock_session
+        mock_session.data = {}
+        mock_session.get.return_value = authorize_response
+        mock_session.post.side_effect = [init_response, err]
+
+        with pytest.raises((PyiCloudAPIResponseException, HTTPError)) as exc_info:
+            pyicloud_service._srp_authentication()
+
+        assert not isinstance(exc_info.value, PyiCloudFailedLoginException)
+        if isinstance(exc_info.value, PyiCloudAPIResponseException):
+            assert exc_info.value.code == status_code
+        else:
+            assert isinstance(exc_info.value, HTTPError)
+            assert exc_info.value.response.status_code == status_code
+
+
 def test_authenticate_skips_token_auth_after_srp_2fa_required(
     pyicloud_service: PyiCloudService,
 ) -> None:
