@@ -3794,6 +3794,44 @@ def test_spent_challenge_requests_replacement_code() -> None:
     ]
 
 
+def test_spent_challenge_announces_replacement_delivery_route() -> None:
+    """The replacement request reports where its new code was delivered.
+
+    A replacement can fall back to SMS, so the delivery notice must be
+    re-announced instead of leaving the original trusted-device message.
+    """
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.two_factor_delivery_method = "trusted_device"
+
+    request_count = {"calls": 0}
+
+    def request_with_sms_fallback() -> bool:
+        request_count["calls"] += 1
+        if request_count["calls"] > 1:
+            fake_api.two_factor_delivery_method = "sms"
+            fake_api.two_factor_delivery_notice = (
+                "Trusted-device prompt failed; falling back to SMS."
+            )
+        return True
+
+    fake_api.request_2fa_code.side_effect = request_with_sms_fallback
+    fake_api.validate_2fa_code.side_effect = [
+        context_module.PyiCloudTrustedDeviceChallengeRequiredException("spent"),
+        True,
+    ]
+
+    with patch.object(context_module.typer, "prompt", side_effect=["111111", "222222"]):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    output = _unwrapped(result)
+    assert result.exit_code == 0
+    assert "a new code has been requested" in output
+    assert "Trusted-device prompt failed; falling back to SMS." in output
+    assert "Requested a 2FA code by SMS." in output
+    assert fake_api.request_2fa_code.call_count == 2  # initial + replacement
+
+
 def test_spent_challenge_exhausts_attempts() -> None:
     """Repeated spent challenges stop at the existing attempt limit."""
     fake_api = FakeAPI()

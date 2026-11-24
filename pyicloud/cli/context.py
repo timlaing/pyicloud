@@ -362,6 +362,19 @@ class CLIState:
             raise CLIAbort("Invalid device selection.")
         return idx
 
+    def _announce_2fa_delivery(self, api: PyiCloudService) -> None:
+        """Report where the just-requested 2FA code was delivered."""
+
+        notice = getattr(api, "two_factor_delivery_notice", None)
+        if notice:
+            self.console.print(notice)
+
+        delivery_method = getattr(api, "two_factor_delivery_method", "unknown")
+        if delivery_method == "trusted_device":
+            self.console.print("Requested a 2FA prompt on your trusted Apple devices.")
+        elif delivery_method == "sms":
+            self.console.print("Requested a 2FA code by SMS.")
+
     def _handle_2fa(self, api: PyiCloudService) -> None:  # noqa: S3776
         """Complete Apple's HSA2 flow using a security key or code-based challenge."""
         fido2_devices = list(getattr(api, "fido2_devices", []) or [])
@@ -394,17 +407,7 @@ class CLIState:
                         "one and retry."
                     )
 
-                notice = getattr(api, "two_factor_delivery_notice", None)
-                if notice:
-                    self.console.print(notice)
-
-                delivery_method = getattr(api, "two_factor_delivery_method", "unknown")
-                if delivery_method == "trusted_device":
-                    self.console.print(
-                        "Requested a 2FA prompt on your trusted Apple devices."
-                    )
-                elif delivery_method == "sms":
-                    self.console.print("Requested a 2FA code by SMS.")
+                self._announce_2fa_delivery(api)
             except PyiCloudNoTrustedNumberAvailable as exc:
                 raise CLIAbort(
                     "Two-factor authentication requires a trusted phone number, "
@@ -442,6 +445,7 @@ class CLIState:
                         "The previous 2FA challenge is no longer valid; "
                         "a new code has been requested."
                     )
+                    self._announce_2fa_delivery(api)
                     continue
                 except PyiCloudTrustedDeviceVerificationException as exc:
                     raise CLIAbort(
