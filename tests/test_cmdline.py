@@ -3810,7 +3810,11 @@ def test_spent_challenge_exhausts_attempts() -> None:
         result = _invoke(fake_api, "auth", "login", interactive=True)
 
     assert result.exit_code != 0
-    assert fake_api.validate_2fa_code.call_count == 3
+    assert fake_api.validate_2fa_code.call_args_list == [
+        call("111111"),
+        call("222222"),
+        call("333333"),
+    ]
     assert fake_api.request_2fa_code.call_count == 3  # initial + 2 replacements
 
 
@@ -3832,6 +3836,8 @@ def test_spent_challenge_prompt_failure_aborts() -> None:
 
     assert result.exit_code != 0
     assert "Failed to request the 2FA trusted-device prompt." in str(result.exception)
+    assert fake_api.validate_2fa_code.call_args_list == [call("111111")]
+    assert fake_api.request_2fa_code.call_count == 2
 
 
 def test_sms_2fa_aborts_after_three_invalid_codes() -> None:
