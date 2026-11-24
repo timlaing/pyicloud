@@ -1430,46 +1430,13 @@ class PyiCloudService:
                 self._validate_sms_code(code)
             elif bridge_active:
                 assert bridge_state is not None
-                try:
-                    verified = self._trusted_device_bridge.validate_code(
-                        session=self.session,
-                        auth_endpoint=self._auth_endpoint,
-                        headers=self._get_auth_headers({"Accept": CONTENT_TYPE_JSON}),
-                        bridge_state=bridge_state,
-                        code=code,
-                    )
-                except (
-                    PyiCloudAPIResponseException,
-                    PyiCloud2FARequiredException,
-                ) as error:
-                    # The challenge cannot be reused: it was consumed, the
-                    # rejected code advanced the protocol, or a transport
-                    # failure leaves it ambiguous whether Apple accepted the
-                    # step-2 POST. request_raw() also raises a plain API
-                    # exception for non-connection transport faults, and
-                    # answering False there would let the next retry fall
-                    # back to the legacy verifier. Retire the challenge and
-                    # ask the caller for a fresh code instead of replaying
-                    # it. Preserving retries for proven pre-transmission
-                    # failures is tracked in issue #557.
-                    self._clear_trusted_device_bridge_state()
-                    raise PyiCloudTrustedDeviceChallengeRequiredException(
-                        f"{error}; request a new verification code"
-                    ) from error
-                if not verified:
-                    # The rejected code consumed the challenge: the bridge has
-                    # advanced past step 2 and cannot verify another code.
-                    self._clear_trusted_device_bridge_state()
-                    raise PyiCloudTrustedDeviceChallengeRequiredException(
-                        "Code verification failed; request a new verification code"
-                    )
+                self._validate_bridge_code(code, bridge_state)
             else:
                 self._validate_trusted_device_code(code)
         except KeyboardInterrupt:
-            if bridge_state is not None:
-                # The interrupt may have landed after Apple accepted the
-                # step-2 POST, so the captured challenge is not safe to replay.
-                self._clear_trusted_device_bridge_state()
+            # The interrupt may have landed after Apple accepted the step-2
+            # POST, so the captured challenge is not safe to replay.
+            self._discard_bridge_challenge(bridge_state)
             raise
         except (
             PyiCloudTrustedDeviceVerificationException,
@@ -1481,10 +1448,9 @@ class PyiCloudService:
             self._clear_trusted_device_bridge_state()
             raise
         except (PyiCloudAPIResponseException, PyiCloud2FARequiredException):
-            if bridge_state is not None:
-                # A legacy-routed bridge challenge is spent once the verifier
-                # rejects the code; close it instead of leaking the socket.
-                self._clear_trusted_device_bridge_state()
+            # A legacy-routed bridge challenge is spent once the verifier
+            # rejects the code; close it instead of leaking the socket.
+            self._discard_bridge_challenge(bridge_state)
             LOGGER.error("Code verification failed.")
             return False
         except Exception:
@@ -1492,8 +1458,7 @@ class PyiCloudService:
             # ValueError) can escape after Apple accepted the step-2 POST.
             # Retire the challenge instead of leaking the websocket or let
             # request_2fa_code() skip the replacement it would report.
-            if bridge_state is not None:
-                self._clear_trusted_device_bridge_state()
+            self._discard_bridge_challenge(bridge_state)
             raise
 
         if bridge_state is not None:
@@ -1503,6 +1468,51 @@ class PyiCloudService:
 
         self.trust_session()
         return not self.requires_2sa
+
+    def _validate_bridge_code(
+        self, code: str, bridge_state: TrustedDeviceBridgeState
+    ) -> None:
+        """Verify a code against one single-use bridge challenge."""
+
+        try:
+            verified = self._trusted_device_bridge.validate_code(
+                session=self.session,
+                auth_endpoint=self._auth_endpoint,
+                headers=self._get_auth_headers({"Accept": CONTENT_TYPE_JSON}),
+                bridge_state=bridge_state,
+                code=code,
+            )
+        except (
+            PyiCloudAPIResponseException,
+            PyiCloud2FARequiredException,
+        ) as error:
+            # The challenge cannot be reused: it was consumed, the rejected
+            # code advanced the protocol, or a transport failure leaves it
+            # ambiguous whether Apple accepted the step-2 POST. request_raw()
+            # also raises a plain API exception for non-connection transport
+            # faults, and answering False would let the next retry fall back
+            # to the legacy verifier. Retire the challenge and ask the caller
+            # for a fresh code instead of replaying it. Preserving retries for
+            # proven pre-transmission failures is tracked in issue #557.
+            self._clear_trusted_device_bridge_state()
+            raise PyiCloudTrustedDeviceChallengeRequiredException(
+                f"{error}; request a new verification code"
+            ) from error
+        if not verified:
+            # The rejected code consumed the challenge: the bridge has
+            # advanced past step 2 and cannot verify another code.
+            self._clear_trusted_device_bridge_state()
+            raise PyiCloudTrustedDeviceChallengeRequiredException(
+                "Code verification failed; request a new verification code"
+            )
+
+    def _discard_bridge_challenge(
+        self, bridge_state: TrustedDeviceBridgeState | None
+    ) -> None:
+        """Close the captured bridge challenge when one is still held."""
+
+        if bridge_state is not None:
+            self._clear_trusted_device_bridge_state()
 
     def _validate_trusted_device_code(self, code: str) -> None:
         """Verifies a verification code received via Apple's legacy device endpoint."""
