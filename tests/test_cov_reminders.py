@@ -79,6 +79,7 @@ from pyicloud.services.reminders.models import (
     RemindersList,
     UrgentPresentationAlarms,
     URLAttachment,
+    VehicleTrigger,
 )
 from pyicloud.services.reminders.protobuf import reminders_pb2
 
@@ -754,6 +755,29 @@ class TestRemindersReadsBranches:
             records=[
                 _minimal_reminder_record("Reminder/A", "List/A"),
                 _ck_record(
+                    "Alarm",
+                    "Alarm/A",
+                    {
+                        "Reminder": {
+                            "type": "REFERENCE",
+                            "value": {"recordName": "Reminder/A"},
+                        },
+                        "TriggerID": {"type": "STRING", "value": "TRIG-VEHICLE"},
+                    },
+                ),
+                _ck_record(
+                    "AlarmTrigger",
+                    "AlarmTrigger/TRIG-VEHICLE",
+                    {
+                        "Type": {"type": "STRING", "value": "Vehicle"},
+                        "Event": {"type": "INT64", "value": 2},
+                        "Alarm": {
+                            "type": "REFERENCE",
+                            "value": {"recordName": "Alarm/A"},
+                        },
+                    },
+                ),
+                _ck_record(
                     "AlarmTrigger",
                     "AlarmTrigger/TRIG-UNKNOWN",
                     {
@@ -778,7 +802,10 @@ class TestRemindersReadsBranches:
         result = api.list_reminders(list_id="List/A", include_completed=True)
 
         assert [r.id for r in result.reminders] == ["Reminder/A"]
-        assert result.triggers == {}
+        assert set(result.triggers) == {"AlarmTrigger/TRIG-VEHICLE"}
+        vehicle_trigger = result.triggers["AlarmTrigger/TRIG-VEHICLE"]
+        assert isinstance(vehicle_trigger, VehicleTrigger)
+        assert vehicle_trigger.event == 2
         assert result.attachments == {}
 
     def test_alarms_for_no_ids_returns_early(self) -> None:
