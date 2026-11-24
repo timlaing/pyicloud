@@ -3831,7 +3831,7 @@ def test_spent_challenge_prompt_failure_aborts() -> None:
         result = _invoke(fake_api, "auth", "login", interactive=True)
 
     assert result.exit_code != 0
-    assert "Failed to request the 2FA trusted-device prompt." in _unwrapped(result)
+    assert "Failed to request the 2FA trusted-device prompt." in str(result.exception)
 
 
 def test_sms_2fa_aborts_after_three_invalid_codes() -> None:
