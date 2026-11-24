@@ -849,6 +849,28 @@ def test_consumed_challenge_reports_replacement_required(
     trust_session.assert_not_called()
 
 
+def test_spent_challenge_allows_fresh_bridge_request(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Retiring a spent challenge lets request_2fa_code start a new bridge."""
+    _, bridge, _ = _bridge_state_fixture(pyicloud_service, monkeypatch)
+    bridge.validate_code.side_effect = PyiCloudTrustedDeviceVerificationException(
+        "challenge consumed"
+    )
+
+    with pytest.raises(PyiCloudTrustedDeviceChallengeRequiredException):
+        pyicloud_service.validate_2fa_code("123456")
+
+    assert pyicloud_service._two_factor_code_requested is False
+    monkeypatch.setattr(
+        pyicloud_service, "_supports_trusted_device_bridge", lambda: True
+    )
+    bridge.start.return_value = MagicMock()
+    assert pyicloud_service.request_2fa_code() is True
+    bridge.start.assert_called_once()
+    assert pyicloud_service._trusted_device_bridge_state is bridge.start.return_value
+
+
 def test_request_2fa_code_requests_sms_delivery(
     pyicloud_service: PyiCloudService,
 ) -> None:

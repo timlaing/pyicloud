@@ -528,8 +528,11 @@ class PyiCloudService:
     def _clear_trusted_device_bridge_state(self) -> None:
         """Close any active trusted-device bridge session and clear in-memory state."""
 
+        self._two_factor_code_requested = False
         if self._trusted_device_bridge_state is not None:
-            self._trusted_device_bridge.close(self._trusted_device_bridge_state)
+            state = self._trusted_device_bridge_state
+            self._trusted_device_bridge_state = None
+            self._trusted_device_bridge.close(state)
         self._trusted_device_bridge_state = None
 
     def get_auth_status(self) -> dict[str, Any]:
