@@ -1446,14 +1446,19 @@ class PyiCloudService:
                         f"{error}; request a new verification code"
                     ) from error
                 if not verified:
-                    LOGGER.error("Code verification failed.")
-                    return False
+                    raise PyiCloudAPIResponseException("Code verification failed.")
             else:
                 self._validate_trusted_device_code(code)
-        except PyiCloudTrustedDeviceVerificationException:
+        except KeyboardInterrupt:
+            if bridge_state is not None:
+                # The interrupt may have landed after Apple accepted the
+                # step-2 POST, so the captured challenge is not safe to replay.
+                self._clear_trusted_device_bridge_state()
             raise
-        except PyiCloudConnectionException:
-            # Never reached Apple, so the challenge may still be retried.
+        except (
+            PyiCloudTrustedDeviceVerificationException,
+            PyiCloudConnectionException,
+        ):
             raise
         except (PyiCloudAPIResponseException, PyiCloud2FARequiredException):
             LOGGER.error("Code verification failed.")

@@ -871,6 +871,21 @@ def test_spent_challenge_allows_fresh_bridge_request(
     assert pyicloud_service._trusted_device_bridge_state is bridge.start.return_value
 
 
+def test_interrupt_retires_bridge_challenge(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cancelled verification must not leave a reusable challenge."""
+    state, bridge, _ = _bridge_state_fixture(pyicloud_service, monkeypatch)
+    bridge.validate_code.side_effect = KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        pyicloud_service.validate_2fa_code("123456")
+
+    assert pyicloud_service._trusted_device_bridge_state is None
+    assert pyicloud_service._two_factor_code_requested is False
+    bridge.close.assert_called_once_with(state)
+
+
 def test_request_2fa_code_requests_sms_delivery(
     pyicloud_service: PyiCloudService,
 ) -> None:
