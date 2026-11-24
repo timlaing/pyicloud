@@ -1126,84 +1126,11 @@ def test_trusted_device_bridge_validate_code_returns_false_on_412(
         )
     assert session.request_raw.call_count == request_count
 
-    # Recovery comes from a fresh bridge challenge, which validates cleanly.
-    retry_websocket = _FakeWebSocket([
-        _encode_connection_response(b"push-token"),
-        _encode_channel_subscription_response(topic),
-        _encode_push_message(
-            topic,
-            {
-                "sessionUUID": "bridge-session",
-                "nextStep": "2",
-                "txnid": "2300_282820214_S",
-                "salt": base64.b64encode(b"0123456789abcdef").decode("ascii"),
-                "idmsdata": "initial-idms",
-                "akdata": {"lat": 49.52},
-            },
-            2300,
-        ),
-        _encode_push_message(
-            topic,
-            {
-                "sessionUUID": "bridge-session",
-                "nextStep": "4",
-                "txnid": "2300_282820214_S",
-                "data": base64.b64encode(
-                    (_hex_to_b64("aa01") + "_" + _hex_to_b64("bb02")).encode("utf-8")
-                ).decode("ascii"),
-                "idmsdata": "step4-idms",
-                "akdata": {"step": 4},
-            },
-            2301,
-        ),
-        _encode_push_message(
-            topic,
-            {
-                "sessionUUID": "bridge-session",
-                "nextStep": "6",
-                "txnid": "2300_282820214_S",
-                "encryptedCode": "ciphertext",
-                "idmsdata": "step6-idms",
-                "akdata": {"step": 6},
-            },
-            2302,
-        ),
-    ])
-    monkeypatch.setattr(
-        bootstrapper, "_websocket_factory", lambda *_args: retry_websocket
-    )
-    session.request_raw.side_effect = [
-        _response(200),
-        _response(200),
-        _response(200),
-        _response(200),
-        _response(204),
-    ]
-    fresh_state = bootstrapper.start(
-        session=session,
-        auth_endpoint="https://idmsa.apple.com/appleauth/auth",
-        headers={"scnt": "test-scnt"},
-        boot_context=_boot_context(topic),
-        user_agent="test-agent",
-    )
-    assert (
-        bootstrapper.validate_code(
-            session=session,
-            auth_endpoint="https://idmsa.apple.com/appleauth/auth",
-            headers={"scnt": "test-scnt"},
-            bridge_state=fresh_state,
-            code="050044",
-        )
-        is True
-    )
-    assert session.request_raw.call_args_list[-1].args[1].endswith("/bridge/step/6")
-    assert retry_websocket.closed is False
-
-    # PyiCloudService never reuses the consumed state: a False/412 result
-    # raises PyiCloudTrustedDeviceChallengeRequiredException, closes the
-    # socket, and request_2fa_code() starts a fresh challenge before the next
-    # code submission (see test_rejected_code_requires_replacement_challenge
-    # in tests/test_base.py).
+    # Service-driven recovery lives at the service level:
+    # test_rejected_code_requires_replacement_challenge in tests/test_base.py
+    # proves the False/412 result raises
+    # PyiCloudTrustedDeviceChallengeRequiredException, closes the socket, and
+    # request_2fa_code() supplies a fresh challenge for the next submission.
 
 
 def test_trusted_device_bridge_validate_code_rejects_error_push(
@@ -1544,9 +1471,10 @@ def test_trusted_device_bridge_validate_code_propagates_malformed_ack(
     """A malformed push-ack frame after the step-2 POST escapes as ValueError.
 
     Frame decoding raises before the protocol completes, so the verifier
-    cannot classify it; PyiCloudService.validate_2fa_code() retires the
-    challenge instead of leaking the socket (see
-    test_unexpected_verification_error_retires_challenge in tests/test_base.py).
+    cannot classify it. Cleanup belongs to the service: see
+    test_unexpected_verification_error_retires_challenge in tests/test_base.py,
+    which drives this failure through validate_2fa_code() and verifies the
+    challenge is retired, the socket closed, and a replacement verifies.
     """
 
     topic = "com.apple.idmsauthwidget"
@@ -1605,13 +1533,10 @@ def test_trusted_device_bridge_validate_code_propagates_malformed_ack(
             bridge_state=state,
             code="050044",
         )
-    # The step-2 POST already went out before the frame was decoded.
+    # The step-2 POST already went out before the frame was decoded, and the
+    # bridge helper leaves the socket open for the service to retire.
     assert session.request_raw.call_count == 2
     assert websocket.closed is False
-
-    # The service retires the challenge on this exit too, closing the socket.
-    bootstrapper.close(state)
-    assert websocket.closed is True
 
 
 def test_trusted_device_bridge_validate_code_wraps_step4_prover_message1_failure(

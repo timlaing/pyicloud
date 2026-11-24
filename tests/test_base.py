@@ -41,7 +41,7 @@ from pyicloud.exceptions import (
     PyiCloudTrustedDevicePromptException,
     PyiCloudTrustedDeviceVerificationException,
 )
-from pyicloud.hsa2_bridge import TrustedDeviceBridgeBootstrapper
+from pyicloud.hsa2_bridge import TrustedDeviceBridgeBootstrapper, _hex_to_b64
 from pyicloud.services.calendar import CalendarService
 from pyicloud.services.contacts import ContactsService
 from pyicloud.services.hidemyemail import HideMyEmailService
@@ -877,7 +877,10 @@ def test_rejected_code_requires_replacement_challenge(
     """A rejected code must not switch a later retry to the legacy verifier.
 
     The rejected attempt consumes the bridge challenge, so the caller must
-    request a replacement before retrying.
+    request a replacement before retrying. The bridge maps its HTTP 412
+    rejection to validate_code() returning False (see
+    test_trusted_device_bridge_validate_code_returns_false_on_412 in
+    tests/test_hsa2_bridge.py).
     """
 
     state, bridge, trust_session = _bridge_state_fixture(pyicloud_service, monkeypatch)
@@ -981,7 +984,8 @@ def test_unexpected_verification_error_retires_challenge(
     The real bridge verifier raises ValueError while decoding a malformed
     push-ack after the step-2 POST, so this exercises the decode failure
     end to end: validate_2fa_code() must retire the consumed challenge and
-    close its socket before re-raising instead of leaving it open.
+    close its socket before re-raising, and a replacement request must
+    verify successfully afterwards.
     """
 
     pyicloud_service.data = {"dsInfo": {"hsaVersion": 2}, "hsaChallengeRequired": False}
@@ -1006,11 +1010,57 @@ def test_unexpected_verification_error_retires_challenge(
         # Push-ack (field 7) whose message id (field 2) is not numeric.
         b"\x3a\x03\x12\x01x",
     ])
+    retry_websocket = _FakeWebSocket([
+        _encode_connection_response(b"push-token"),
+        _encode_channel_subscription_response(topic),
+        _encode_push_message(
+            topic,
+            {
+                "sessionUUID": "bridge-session",
+                "nextStep": "2",
+                "txnid": "2300_282820214_S",
+                "salt": base64.b64encode(b"0123456789abcdef").decode("ascii"),
+                "idmsdata": "initial-idms",
+                "akdata": {"lat": 49.52},
+            },
+            2300,
+        ),
+        _encode_push_message(
+            topic,
+            {
+                "sessionUUID": "bridge-session",
+                "nextStep": "4",
+                "txnid": "2300_282820214_S",
+                "data": base64.b64encode(
+                    (_hex_to_b64("aa01") + "_" + _hex_to_b64("bb02")).encode("utf-8")
+                ).decode("ascii"),
+                "idmsdata": "step4-idms",
+                "akdata": {"step": 4},
+            },
+            2301,
+        ),
+        _encode_push_message(
+            topic,
+            {
+                "sessionUUID": "bridge-session",
+                "nextStep": "6",
+                "txnid": "2300_282820214_S",
+                "encryptedCode": "ciphertext",
+                "idmsdata": "step6-idms",
+                "akdata": {"step": 6},
+            },
+            2302,
+        ),
+    ])
+    sockets = iter([websocket, retry_websocket])
     prover = MagicMock()
     prover.get_message1.return_value = "abcd"
+    prover.process_message1.return_value = "ef01"
+    prover.process_message2.return_value = {"isVerified": True, "key": "deadbeef"}
+    prover.decrypt_message.return_value = "derived-device-code"
     bootstrapper = TrustedDeviceBridgeBootstrapper(
         timeout=1.0,
-        websocket_factory=lambda *_args: websocket,
+        websocket_factory=lambda *_args: next(sockets),
         prover_factory=lambda: prover,
     )
     monkeypatch.setattr(
@@ -1025,7 +1075,15 @@ def test_unexpected_verification_error_retires_challenge(
     )
     session = MagicMock()
     session.data = {}
-    session.request_raw.side_effect = [_response(200), _response(200)]
+    session.request_raw.side_effect = [
+        _response(200),  # initial challenge boot
+        _response(200),  # step-2 POST before the malformed frame
+        _response(200),  # replacement challenge boot
+        _response(200),  # replacement step 2
+        _response(200),  # replacement step 4
+        _response(200),  # replacement code validate
+        _response(204),  # replacement completion
+    ]
     state = bootstrapper.start(
         session=session,
         auth_endpoint="https://idmsa.apple.com/appleauth/auth",
@@ -1048,6 +1106,28 @@ def test_unexpected_verification_error_retires_challenge(
     # The service closes the socket through the challenge lifecycle, not the
     # bootstrapper directly.
     assert websocket.closed is True
+
+    # Cleanup is followed by a working replacement challenge; supply the
+    # boot context the real bridge needs to start a fresh challenge.
+    monkeypatch.setattr(
+        pyicloud_service, "_current_hsa2_boot_context", lambda: _boot_context(topic)
+    )
+    trust_session = MagicMock(
+        side_effect=lambda: pyicloud_service.data.update({"hsaTrustedBrowser": True})
+    )
+    monkeypatch.setattr(pyicloud_service, "trust_session", trust_session)
+
+    assert pyicloud_service.request_2fa_code() is True
+    replacement = pyicloud_service._trusted_device_bridge_state
+    assert replacement is not None
+    assert replacement is not state
+    assert pyicloud_service.validate_2fa_code("050044") is True
+
+    trust_session.assert_called_once_with()
+    # Success retires the replacement challenge and closes its socket too.
+    assert pyicloud_service._trusted_device_bridge_state is None
+    assert pyicloud_service._two_factor_code_requested is False
+    assert retry_websocket.closed is True
 
 
 def test_consumed_challenge_reports_replacement_required(
