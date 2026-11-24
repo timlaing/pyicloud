@@ -27,6 +27,7 @@ from pyicloud.exceptions import (
     PyiCloudFailedLoginException,
     PyiCloudNoTrustedNumberAvailable,
     PyiCloudServiceUnavailable,
+    PyiCloudTrustedDeviceChallengeRequiredException,
     PyiCloudTrustedDevicePromptException,
     PyiCloudTrustedDeviceVerificationException,
 )
@@ -428,6 +429,15 @@ class CLIState:
                 code = typer.prompt("Enter 2FA code")
                 try:
                     is_valid = api.validate_2fa_code(code)
+                except PyiCloudTrustedDeviceChallengeRequiredException:
+                    if attempt == max_attempts - 1:
+                        raise CLIAbort("Failed to verify the 2FA code.") from None
+                    api.request_2fa_code()
+                    self.console.print(
+                        "The previous 2FA challenge is no longer valid; "
+                        "a new code has been requested."
+                    )
+                    continue
                 except PyiCloudTrustedDeviceVerificationException as exc:
                     raise CLIAbort(
                         "Failed to verify the 2FA trusted-device code."

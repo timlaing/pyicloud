@@ -30,6 +30,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Keep the original trusted-device bridge challenge and route when a 2FA code is rejected or verification cannot reach Apple, so a retry no longer falls back to the legacy verifier. A consumed or invalidated challenge raises `PyiCloudTrustedDeviceChallengeRequiredException`, telling callers to request a fresh code.
 - Align the minimum Pydantic pin with the declared 2.14.1 runtime lower bound so the minimum-runtime installation check passes again.
 - Cache successful PCS queries for six hours for Photos, Drive, Notes, and Reminders instead of
   repeatedly prompting for Advanced Data Protection consent during polling.

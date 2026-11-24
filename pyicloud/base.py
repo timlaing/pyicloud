@@ -54,6 +54,7 @@ from pyicloud.exceptions import (
     PyiCloudSecurityKeyTimeoutException,
     PyiCloudServiceNotActivatedException,
     PyiCloudServiceUnavailable,
+    PyiCloudTrustedDeviceChallengeRequiredException,
     PyiCloudTrustedDevicePromptException,
     PyiCloudTrustedDeviceVerificationException,
 )
@@ -1405,23 +1406,43 @@ class PyiCloudService:
         raise PyiCloudPCSTimeoutException(PCS_ACCESS_ERROR)
 
     def validate_2fa_code(self, code: str) -> bool:
-        """Verifies a verification code received via Apple's 2FA system (HSA2)."""
-        self._two_factor_code_requested = False
+        """Verifies a verification code received via Apple's 2FA system (HSA2).
+
+        A rejected code or a transport failure keeps the original bridge
+        challenge, so a retry stays on the same route. A challenge the bridge can
+        no longer verify is retired and reported with
+        ``PyiCloudTrustedDeviceChallengeRequiredException``.
+        """
         bridge_state = self._trusted_device_bridge_state
+        bridge_active = (
+            bridge_state is not None
+            and not bridge_state.uses_legacy_trusted_device_verifier
+        )
+        if not bridge_active:
+            # SMS and deliberately selected legacy routes do not keep a
+            # reusable bridge challenge.
+            self._two_factor_code_requested = False
         try:
             if self.two_factor_delivery_method == "sms":
                 self._validate_sms_code(code)
-            elif (
-                bridge_state is not None
-                and not bridge_state.uses_legacy_trusted_device_verifier
-            ):
-                if not self._trusted_device_bridge.validate_code(
-                    session=self.session,
-                    auth_endpoint=self._auth_endpoint,
-                    headers=self._get_auth_headers({"Accept": CONTENT_TYPE_JSON}),
-                    bridge_state=bridge_state,
-                    code=code,
-                ):
+            elif bridge_active:
+                assert bridge_state is not None
+                try:
+                    verified = self._trusted_device_bridge.validate_code(
+                        session=self.session,
+                        auth_endpoint=self._auth_endpoint,
+                        headers=self._get_auth_headers({"Accept": CONTENT_TYPE_JSON}),
+                        bridge_state=bridge_state,
+                        code=code,
+                    )
+                except PyiCloudTrustedDeviceVerificationException as error:
+                    # The bridge can no longer verify this challenge. Retire it
+                    # instead of letting a retry drop into the legacy verifier.
+                    self._clear_trusted_device_bridge_state()
+                    raise PyiCloudTrustedDeviceChallengeRequiredException(
+                        f"{error}; request a new verification code"
+                    ) from error
+                if not verified:
                     LOGGER.error("Code verification failed.")
                     return False
             else:
@@ -1429,16 +1450,15 @@ class PyiCloudService:
         except PyiCloudTrustedDeviceVerificationException:
             raise
         except PyiCloudConnectionException:
-            # Never seen by Apple, so it says nothing about the code.
+            # Never reached Apple, so the challenge may still be retried.
             raise
         except (PyiCloudAPIResponseException, PyiCloud2FARequiredException):
-            # Wrong verification code
             LOGGER.error("Code verification failed.")
             return False
-        finally:
-            if bridge_state is not None:
-                self._clear_trusted_device_bridge_state()
 
+        if bridge_state is not None:
+            self._clear_trusted_device_bridge_state()
+        self._two_factor_code_requested = False
         LOGGER.debug("Code verification successful.")
 
         self.trust_session()

@@ -894,8 +894,9 @@ def test_trusted_device_bridge_validate_code_runs_step2_step4_step6_sequence(
         bytes.fromhex(_topic_hash(topic)),
         2302,
     )
-    assert websocket.closed is True
-    assert state.websocket is None
+    assert websocket.closed is False
+    # Lifecycle cleanup belongs to the caller; the bridge stays usable on retry.
+    assert state.websocket is websocket
 
 
 def test_trusted_device_bridge_accepts_step4_encrypted_code_final_push(
@@ -1002,7 +1003,7 @@ def test_trusted_device_bridge_accepts_step4_encrypted_code_final_push(
         },
         headers={"scnt": "test-scnt", "X-Apple-App-Id": "1159"},
     )
-    assert websocket.closed is True
+    assert websocket.closed is False
 
 
 def test_trusted_device_bridge_validate_code_returns_false_on_412(
@@ -1105,7 +1106,7 @@ def test_trusted_device_bridge_validate_code_returns_false_on_412(
         is False
     )
     assert session.request_raw.call_args_list[-1].args[1].endswith("/bridge/step/6")
-    assert websocket.closed is True
+    assert websocket.closed is False
 
 
 def test_trusted_device_bridge_validate_code_rejects_error_push(
@@ -1196,7 +1197,7 @@ def test_trusted_device_bridge_validate_code_rejects_error_push(
             bridge_state=state,
             code="050044",
         )
-    assert websocket.closed is True
+    assert websocket.closed is False
 
 
 def test_trusted_device_bridge_validate_code_rejects_malformed_final_push(
@@ -1289,7 +1290,7 @@ def test_trusted_device_bridge_validate_code_rejects_malformed_final_push(
             bridge_state=state,
             code="050044",
         )
-    assert websocket.closed is True
+    assert websocket.closed is False
 
 
 def test_trusted_device_bridge_validate_code_rejects_mismatched_followup_push(
@@ -1366,7 +1367,7 @@ def test_trusted_device_bridge_validate_code_rejects_mismatched_followup_push(
             bridge_state=state,
             code="050044",
         )
-    assert websocket.closed is True
+    assert websocket.closed is False
 
 
 def test_trusted_device_bridge_validate_code_closes_on_timeout(
@@ -1432,7 +1433,7 @@ def test_trusted_device_bridge_validate_code_closes_on_timeout(
             bridge_state=state,
             code="050044",
         )
-    assert websocket.closed is True
+    assert websocket.closed is False
 
 
 def test_trusted_device_bridge_validate_code_wraps_step4_prover_message1_failure(
@@ -1512,4 +1513,4 @@ def test_trusted_device_bridge_validate_code_wraps_step4_prover_message1_failure
             bridge_state=state,
             code="050044",
         )
-    assert websocket.closed is True
+    assert websocket.closed is False
