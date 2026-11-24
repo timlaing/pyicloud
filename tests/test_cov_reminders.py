@@ -513,22 +513,22 @@ class TestRemindersWritesBranches:
             id="Reminder/R",
             list_id="List/A",
             title="T",
-            hashtag_ids=["H-1"],
+            attachment_ids=["H-1"],
         )
-        child = SimpleNamespace(id="Hashtag/H-1", record_change_tag=None)
+        child = SimpleNamespace(id="Attachment/H-1", record_change_tag=None)
 
         api._delete_linked_child(
             reminder=reminder,
-            reminder_ids_attr="hashtag_ids",
+            reminder_ids_attr="attachment_ids",
             child=child,
-            prefix="Hashtag",
-            record_type="Hashtag",
-            field_name="HashtagIDs",
-            token_field_name="hashtagIDs",
-            operation_name="Delete hashtag",
+            prefix="Attachment",
+            record_type="Attachment",
+            field_name="AttachmentIDs",
+            token_field_name="attachmentIDs",
+            operation_name="Delete attachment",
         )
 
-        assert reminder.hashtag_ids == []
+        assert reminder.attachment_ids == []
         fields = raw.modify.call_args.kwargs["operations"][1].record.fields
         assert "Reminder" not in fields
 

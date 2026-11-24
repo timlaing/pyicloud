@@ -1842,28 +1842,107 @@ class TestAdditionalWriteApis:
             hashtag_ids=[],
         )
 
+        existing_token = {"counter": 12, "replicaID": "OTHER"}
+        existing_tokens = {
+            "titleDocument": existing_token,
+            "hashtagIDs": {"counter": 7},
+            "lastModifiedDate": {"counter": 3},
+        }
+        svc._raw.lookup.return_value = CKLookupResponse(
+            records=[
+                _ck_record(
+                    "Reminder",
+                    reminder.id,
+                    {
+                        "ResolutionTokenMap": {
+                            "type": "STRING",
+                            "value": json.dumps({"map": existing_tokens}),
+                        },
+                    },
+                ),
+            ]
+        )
         hashtag = svc.create_hashtag(reminder, "travel")
         assert hashtag.id.startswith("Hashtag/")
         assert hashtag.name == "travel"
-        assert len(reminder.hashtag_ids) == 1
+        assert reminder.hashtag_ids == [hashtag.id.split("/")[1]]
 
-        create_ops = svc._raw.modify.call_args.kwargs["operations"]
-        assert len(create_ops) == 2
-        assert create_ops[1].record.recordType == "Hashtag"
-        name_field = create_ops[1].record.fields["Name"].root
-        assert name_field.type == "ENCRYPTED_BYTES"
-        assert name_field.value == b"travel"
-        assert svc._raw.modify.call_args.kwargs["atomic"] is True
+        create_call = svc._raw.modify.call_args.kwargs
+        reminder_op, hashtag_op = [
+            op.model_dump(mode="json", exclude_none=True)
+            for op in create_call["operations"]
+        ]
+        assert create_call["atomic"] is True
+        assert hashtag_op["operationType"] == "create"
+        record = hashtag_op["record"]
+        assert record["recordName"] == hashtag.id
+        assert record["recordType"] == "Hashtag"
+        assert "parent" not in record
+        assert record["fields"] == {
+            "Name": {"type": "STRING", "value": "travel", "isEncrypted": True},
+            "Type": {"type": "INT64", "value": 0},
+            "Imported": {"type": "INT64", "value": 0},
+            "Deleted": {"type": "INT64", "value": 0},
+            "CreationDate": record["fields"]["CreationDate"],
+            "Reminder": {
+                "type": "REFERENCE",
+                "value": {"recordName": reminder.id, "action": "VALIDATE"},
+            },
+        }
+        assert record["fields"]["CreationDate"]["type"] == "TIMESTAMP"
+        assert reminder_op["record"]["fields"]["HashtagIDs"]["value"] == (
+            reminder.hashtag_ids
+        )
 
-        svc._raw.modify.reset_mock()
-        svc._raw.modify.return_value = self._ok_modify()
+        hashtag.record_change_tag = "ctag-tag"
+        svc._raw.modify.side_effect = [
+            CKModifyResponse(
+                records=[
+                    CKErrorItem(
+                        recordName=reminder.id,
+                        serverErrorCode="CONFLICT",
+                        reason="Stale change tag",
+                    ),
+                ]
+            ),
+            CKModifyResponse(
+                records=[
+                    self._ack(reminder.id, "Reminder", "ctag-rem-new"),
+                    CKTombstoneRecord(recordName=hashtag.id, deleted=True),
+                ]
+            ),
+        ]
+        with pytest.raises(RemindersApiError, match="CONFLICT"):
+            svc.delete_hashtag(reminder, hashtag)
+        assert reminder.hashtag_ids == [hashtag.id.split("/")[1]]
+        assert reminder.record_change_tag == "ctag-rem"
+
         svc.delete_hashtag(reminder, hashtag)
+        assert reminder.record_change_tag == "ctag-rem-new"
 
         assert reminder.hashtag_ids == []
-        delete_ops = svc._raw.modify.call_args.kwargs["operations"]
-        assert len(delete_ops) == 2
-        assert delete_ops[1].record.fields["Deleted"].value == 1
-        assert svc._raw.modify.call_args.kwargs["atomic"] is True
+        delete_call = svc._raw.modify.call_args.kwargs
+        delete_reminder_op, delete_hashtag_op = delete_call["operations"]
+        assert delete_call["atomic"] is True
+        assert delete_hashtag_op.operationType == "delete"
+        assert delete_hashtag_op.record.recordName == hashtag.id
+        assert delete_hashtag_op.record.recordChangeTag == "ctag-tag"
+        assert not delete_hashtag_op.record.fields
+        delete_reminder = delete_reminder_op.model_dump(mode="json", exclude_none=True)
+        assert delete_reminder["record"]["fields"]["HashtagIDs"]["value"] == []
+
+        for update in (reminder_op, delete_reminder):
+            assert update["record"]["recordChangeTag"] == "ctag-rem"
+            fields = update["record"]["fields"]
+            assert set(fields) == {
+                "HashtagIDs",
+                "LastModifiedDate",
+                "ResolutionTokenMap",
+            }
+            tokens = json.loads(fields["ResolutionTokenMap"]["value"])["map"]
+            assert tokens["titleDocument"] == existing_token
+            assert tokens["hashtagIDs"]["counter"] == 8
+            assert tokens["lastModifiedDate"]["counter"] == 4
 
     def test_delete_hashtag_rejects_mismatched_parent(self) -> None:
         """Deleting a hashtag with a mismatched parent raises ValueError."""
@@ -2381,7 +2460,8 @@ class TestAdditionalWriteApis:
                 {
                     "Name": {
                         "type": name_field.type,
-                        "value": base64.b64encode(name_field.value).decode("ascii"),
+                        "value": name_field.value,
+                        "isEncrypted": name_field.isEncrypted,
                     },
                     "Reminder": {
                         "type": "REFERENCE",
@@ -2514,8 +2594,8 @@ class TestAdditionalWriteApis:
         svc.update_recurrence_rule(recurrence_rule, interval=2)
         assert recurrence_rule.record_change_tag == "new-recurrencerule-tag"
 
-    def test_update_hashtag_writes_encoded_name_field(self) -> None:
-        """Updating a hashtag writes an encoded name field."""
+    def test_update_hashtag_writes_encrypted_string_name_field(self) -> None:
+        """Updating a hashtag writes an encrypted string name field."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.modify.return_value = self._ok_modify()
@@ -2530,8 +2610,9 @@ class TestAdditionalWriteApis:
 
         operation = svc._raw.modify.call_args.kwargs["operations"][0]
         name_field = operation.record.fields["Name"].root
-        assert name_field.type == "ENCRYPTED_BYTES"
-        assert name_field.value == b"chores"
+        assert name_field.type == "STRING"
+        assert name_field.value == "chores"
+        assert name_field.isEncrypted is True
 
         parsed = svc._record_to_hashtag(
             _ck_record(
@@ -2540,7 +2621,8 @@ class TestAdditionalWriteApis:
                 {
                     "Name": {
                         "type": name_field.type,
-                        "value": base64.b64encode(name_field.value).decode("ascii"),
+                        "value": name_field.value,
+                        "isEncrypted": name_field.isEncrypted,
                     },
                     "Reminder": {
                         "type": "REFERENCE",

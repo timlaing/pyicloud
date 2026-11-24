@@ -32,7 +32,6 @@ from ._protocol import (
     _decode_crdt_document,
     _decode_due_date_delta_alerts,
     _edit_crdt_document,
-    _encode_cloudkit_text_field,
     _encode_crdt_document,
     _encode_due_date_delta_alerts,
     _encode_urgent_presentation_alarms,
@@ -247,11 +246,18 @@ class RemindersWriteAPI:
     ) -> CKModifyOperation:
         """Build a Reminder update operation for an ID-list field."""
         now_ms = int(time.time() * 1000)
-        token_map = _generate_resolution_token_map([
-            token_field_name,
-            "lastModifiedDate",
-        ])
+        modified_fields = [token_field_name, "lastModifiedDate"]
         reminder_record_name = self._reminder_record_name(reminder.id)
+        if field_name == "HashtagIDs":
+            current_fields = self._lookup_current_fields(reminder_record_name)
+            token_map = _merge_resolution_token_map(
+                current_fields.get_value("ResolutionTokenMap")
+                if current_fields is not None
+                else None,
+                modified_fields,
+            )
+        else:
+            token_map = _generate_resolution_token_map(modified_fields)
         return CKModifyOperation(
             operationType="update",
             record=self._write_record(
@@ -341,7 +347,9 @@ class RemindersWriteAPI:
                 record_name=child_record_name,
                 record_type=record_type,
                 fields=child_fields,
-                parent_record_name=reminder_record_name,
+                parent_record_name=None
+                if record_type == "Hashtag"
+                else reminder_record_name,
             ),
         )
 
@@ -368,7 +376,7 @@ class RemindersWriteAPI:
         token_field_name: str,
         operation_name: str,
     ) -> None:
-        """Soft-delete a linked child record and update the reminder ID list."""
+        """Delete a linked child record and update the reminder ID list."""
         child_record_name = _as_record_name(child.id, prefix)
         child_uuid = _as_raw_id(child_record_name, prefix)
         reminder_record_name = self._reminder_record_name(reminder.id)
@@ -394,20 +402,21 @@ class RemindersWriteAPI:
             raw_ids=linked_ids,
         )
 
-        child_fields: dict[str, Any] = {
-            "Deleted": {"type": "INT64", "value": 1},
-        }
-        if child_reminder_id:
-            child_fields["Reminder"] = {
-                "type": "REFERENCE",
-                "value": {
-                    "recordName": self._reminder_record_name(child_reminder_id),
-                    "action": "VALIDATE",
-                },
-            }
+        hard_delete = record_type == "Hashtag"
+        child_fields: dict[str, Any] = {}
+        if not hard_delete:
+            child_fields["Deleted"] = {"type": "INT64", "value": 1}
+            if child_reminder_id:
+                child_fields["Reminder"] = {
+                    "type": "REFERENCE",
+                    "value": {
+                        "recordName": self._reminder_record_name(child_reminder_id),
+                        "action": "VALIDATE",
+                    },
+                }
 
         child_op = CKModifyOperation(
-            operationType="update",
+            operationType="delete" if hard_delete else "update",
             record=self._write_record(
                 record_name=child_record_name,
                 record_type=record_type,
@@ -1116,7 +1125,9 @@ class RemindersWriteAPI:
             field_name="HashtagIDs",
             token_field_name="hashtagIDs",
             child_fields={
-                "Name": _encode_cloudkit_text_field(name),
+                "Name": {"type": "STRING", "value": name, "isEncrypted": True},
+                "Type": {"type": "INT64", "value": 0},
+                "Imported": {"type": "INT64", "value": 0},
                 "Deleted": {"type": "INT64", "value": 0},
                 "Reminder": {
                     "type": "REFERENCE",
@@ -1142,7 +1153,7 @@ class RemindersWriteAPI:
     def update_hashtag(self, hashtag: Hashtag, name: str) -> None:
         """Update an existing hashtag name."""
         fields: dict[str, Any] = {
-            "Name": _encode_cloudkit_text_field(name),
+            "Name": {"type": "STRING", "value": name, "isEncrypted": True},
         }
         if hashtag.reminder_id:
             fields["Reminder"] = {
@@ -1165,7 +1176,7 @@ class RemindersWriteAPI:
         hashtag.name = name
 
     def delete_hashtag(self, reminder: Reminder, hashtag: Hashtag) -> None:
-        """Soft-delete a hashtag and remove it from Reminder.HashtagIDs."""
+        """Delete a hashtag and remove it from Reminder.HashtagIDs."""
         self._delete_linked_child(
             reminder=reminder,
             reminder_ids_attr="hashtag_ids",
