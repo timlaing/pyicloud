@@ -37,9 +37,11 @@ from pyicloud.exceptions import (
     PyiCloudSecurityKeyTimeoutException,
     PyiCloudServiceNotActivatedException,
     PyiCloudServiceUnavailable,
+    PyiCloudTrustedDeviceChallengeRequiredException,
     PyiCloudTrustedDevicePromptException,
     PyiCloudTrustedDeviceVerificationException,
 )
+from pyicloud.hsa2_bridge import TrustedDeviceBridgeBootstrapper, _hex_to_b64
 from pyicloud.services.calendar import CalendarService
 from pyicloud.services.contacts import ContactsService
 from pyicloud.services.hidemyemail import HideMyEmailService
@@ -54,6 +56,15 @@ from pyicloud.services.ubiquity import UbiquityService
 from pyicloud.session import PyiCloudSession, describe_endpoint
 from pyicloud.utils import b64_encode
 from tests.const import LOGIN_2FA, LOGIN_WORKING
+from tests.test_hsa2_bridge import (
+    _boot_context,
+    _encode_channel_subscription_response,
+    _encode_connection_response,
+    _encode_push_message,
+    _FakePrivateKey,
+    _FakeWebSocket,
+    _response,
+)
 
 
 def test_authenticate_with_force_refresh(
@@ -515,6 +526,74 @@ def test_validate_2fa_code_legacy_409_uses_security_code_verdict(
     pyicloud_service._trusted_device_bridge.validate_code.assert_not_called()
 
 
+def test_legacy_route_rejection_closes_bridge_socket(
+    pyicloud_service: PyiCloudService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A legacy-routed bridge challenge is closed once its code is rejected.
+
+    The legacy endpoint rejects the code without the bridge ever seeing it, so
+    the retained websocket must still be closed instead of leaked.
+    """
+
+    pyicloud_service.data = {"dsInfo": {"hsaVersion": 2}, "hsaChallengeRequired": False}
+    pyicloud_service._two_factor_delivery_method = "trusted_device"
+    state = MagicMock(uses_legacy_trusted_device_verifier=True)
+    bridge = MagicMock()
+    pyicloud_service._trusted_device_bridge_state = state
+    pyicloud_service._trusted_device_bridge = bridge
+    trust_session = MagicMock()
+    monkeypatch.setattr(pyicloud_service, "trust_session", trust_session)
+    pyicloud_service._session = MagicMock()
+    cast(Any, pyicloud_service.session).data = {
+        "scnt": "test_scnt",
+        "session_id": "test_session_id",
+    }
+    cast(Any, pyicloud_service.session).post.side_effect = PyiCloudAPIResponseException(
+        "Bad request", 400
+    )
+
+    assert pyicloud_service.validate_2fa_code("123456") is False
+
+    assert pyicloud_service._trusted_device_bridge_state is None
+    bridge.close.assert_called_once_with(state)
+    bridge.validate_code.assert_not_called()
+    trust_session.assert_not_called()
+
+
+def test_legacy_route_connection_error_closes_bridge_socket(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """A legacy-routed bridge POST failing at transport must not leak.
+
+    PyiCloudConnectionException propagates to the caller unchanged, but the
+    retained websocket is retired first so the spent challenge cannot
+    outlive the failed verification.
+    """
+
+    pyicloud_service.data = {"dsInfo": {"hsaVersion": 2}, "hsaChallengeRequired": False}
+    pyicloud_service._two_factor_delivery_method = "trusted_device"
+    state = MagicMock(uses_legacy_trusted_device_verifier=True)
+    bridge = MagicMock()
+    pyicloud_service._trusted_device_bridge_state = state
+    pyicloud_service._trusted_device_bridge = bridge
+    pyicloud_service._session = MagicMock()
+    cast(Any, pyicloud_service.session).data = {
+        "scnt": "test_scnt",
+        "session_id": "test_session_id",
+    }
+    cast(Any, pyicloud_service.session).post.side_effect = PyiCloudConnectionException(
+        "offline"
+    )
+
+    with pytest.raises(PyiCloudConnectionException, match="offline"):
+        pyicloud_service.validate_2fa_code("123456")
+
+    assert pyicloud_service._trusted_device_bridge_state is None
+    bridge.close.assert_called_once_with(state)
+    bridge.validate_code.assert_not_called()
+
+
 @pytest.mark.parametrize(
     ("valid", "expected"),
     [pytest.param(True, True, id="valid"), pytest.param(False, False, id="invalid")],
@@ -770,6 +849,343 @@ def test_validate_2fa_code_bridge_verification_exception_propagates(
         pyicloud_service.validate_2fa_code("123456")
 
     pyicloud_service._trusted_device_bridge.close.assert_called_once_with(bridge_state)
+
+
+def _bridge_state_fixture(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Any, Any, Any]:
+    """Set up a non-legacy bridge challenge for retry tests."""
+    pyicloud_service.data = {"dsInfo": {"hsaVersion": 2}, "hsaChallengeRequired": False}
+    pyicloud_service._two_factor_delivery_method = "trusted_device"
+    state = MagicMock(uses_legacy_trusted_device_verifier=False)
+    bridge = MagicMock()
+    pyicloud_service._trusted_device_bridge_state = state
+    pyicloud_service._trusted_device_bridge = bridge
+    pyicloud_service._two_factor_code_requested = True
+    pyicloud_service._session = MagicMock()
+    cast(Any, pyicloud_service.session).data = {}
+    trust_session = MagicMock(
+        side_effect=lambda: pyicloud_service.data.update({"hsaTrustedBrowser": True})
+    )
+    monkeypatch.setattr(pyicloud_service, "trust_session", trust_session)
+    return state, bridge, trust_session
+
+
+def test_rejected_code_requires_replacement_challenge(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A rejected code must not switch a later retry to the legacy verifier.
+
+    The rejected attempt consumes the bridge challenge, so the caller must
+    request a replacement before retrying. The bridge maps its HTTP 412
+    rejection to validate_code() returning False (see
+    test_trusted_device_bridge_validate_code_returns_false_on_412 in
+    tests/test_hsa2_bridge.py).
+    """
+
+    state, bridge, trust_session = _bridge_state_fixture(pyicloud_service, monkeypatch)
+    bridge.validate_code.side_effect = [False, True]
+
+    with pytest.raises(
+        PyiCloudTrustedDeviceChallengeRequiredException,
+        match="request a new verification code",
+    ):
+        pyicloud_service.validate_2fa_code("123456")
+
+    # The consumed challenge is retired and closed, never handed back to the
+    # legacy verifier.
+    assert pyicloud_service._trusted_device_bridge_state is None
+    assert pyicloud_service._two_factor_code_requested is False
+    bridge.close.assert_called_once_with(state)
+    trust_session.assert_not_called()
+
+    # A replacement request starts a fresh bridge challenge.
+    monkeypatch.setattr(
+        pyicloud_service, "_supports_trusted_device_bridge", lambda: True
+    )
+    replacement = MagicMock(uses_legacy_trusted_device_verifier=False)
+    bridge.start.return_value = replacement
+    assert pyicloud_service.request_2fa_code() is True
+    assert pyicloud_service._trusted_device_bridge_state is replacement
+
+    # The retry stays on the bridge route and succeeds.
+    assert pyicloud_service.validate_2fa_code("123456") is True
+    retry_call = bridge.validate_code.call_args_list[-1]
+    assert retry_call.kwargs["bridge_state"] is replacement
+    assert retry_call.kwargs["code"] == "123456"
+    assert pyicloud_service._trusted_device_bridge_state is None
+    bridge.close.assert_called_with(replacement)
+    trust_session.assert_called_once_with()
+    cast(Any, pyicloud_service.session).post.assert_not_called()
+
+
+def test_bridge_connection_failure_requires_replacement(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A transport failure leaves the challenge ambiguous, so retire it.
+
+    The step-2 POST may already have reached Apple, so the challenge must not
+    be replayed; the caller requests a fresh code instead.
+    """
+    state, bridge, _ = _bridge_state_fixture(pyicloud_service, monkeypatch)
+    bridge.validate_code.side_effect = PyiCloudConnectionException("offline")
+
+    with pytest.raises(
+        PyiCloudTrustedDeviceChallengeRequiredException,
+        match="request a new verification code",
+    ):
+        pyicloud_service.validate_2fa_code("123456")
+
+    assert pyicloud_service._trusted_device_bridge_state is None
+    assert pyicloud_service._two_factor_code_requested is False
+    bridge.close.assert_called_once_with(state)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        PyiCloudAPIResponseException("Request failed to iCloud"),
+        PyiCloud2FARequiredException("test@example.com", MagicMock()),
+    ],
+    ids=["api-response", "2fa-required"],
+)
+def test_transport_api_fault_requires_replacement_challenge(
+    pyicloud_service: PyiCloudService,
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+) -> None:
+    """A plain API fault after step 2 must not answer "wrong code".
+
+    session.request_raw() raises PyiCloudAPIResponseException for transport
+    faults other than connection failures, so returning False here would let
+    the next retry fall through to the legacy verifier without a fresh
+    challenge.
+    """
+
+    state, bridge, _ = _bridge_state_fixture(pyicloud_service, monkeypatch)
+    bridge.validate_code.side_effect = error
+
+    with pytest.raises(
+        PyiCloudTrustedDeviceChallengeRequiredException,
+        match="request a new verification code",
+    ):
+        pyicloud_service.validate_2fa_code("123456")
+
+    assert pyicloud_service._trusted_device_bridge_state is None
+    assert pyicloud_service._two_factor_code_requested is False
+    bridge.close.assert_called_once_with(state)
+
+
+def test_unexpected_verification_error_retires_challenge(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A malformed push frame must not leak the retained websocket.
+
+    The real bridge verifier raises ValueError while decoding a malformed
+    push-ack after the step-2 POST, so this exercises the decode failure
+    end to end: validate_2fa_code() must retire the consumed challenge and
+    close its socket before re-raising, and a replacement request must
+    verify successfully afterwards.
+    """
+
+    pyicloud_service.data = {"dsInfo": {"hsaVersion": 2}, "hsaChallengeRequired": False}
+    pyicloud_service._two_factor_delivery_method = "trusted_device"
+
+    topic = "com.apple.idmsauthwidget"
+    websocket = _FakeWebSocket([
+        _encode_connection_response(b"push-token"),
+        _encode_channel_subscription_response(topic),
+        _encode_push_message(
+            topic,
+            {
+                "sessionUUID": "bridge-session",
+                "nextStep": "2",
+                "txnid": "2300_282820214_S",
+                "salt": base64.b64encode(b"0123456789abcdef").decode("ascii"),
+                "idmsdata": "initial-idms",
+                "akdata": {"lat": 49.52},
+            },
+            2300,
+        ),
+        # Push-ack (field 7) whose message id (field 2) is not numeric.
+        b"\x3a\x03\x12\x01x",
+    ])
+    retry_websocket = _FakeWebSocket([
+        _encode_connection_response(b"push-token"),
+        _encode_channel_subscription_response(topic),
+        _encode_push_message(
+            topic,
+            {
+                "sessionUUID": "bridge-session",
+                "nextStep": "2",
+                "txnid": "2300_282820214_S",
+                "salt": base64.b64encode(b"0123456789abcdef").decode("ascii"),
+                "idmsdata": "initial-idms",
+                "akdata": {"lat": 49.52},
+            },
+            2300,
+        ),
+        _encode_push_message(
+            topic,
+            {
+                "sessionUUID": "bridge-session",
+                "nextStep": "4",
+                "txnid": "2300_282820214_S",
+                "data": base64.b64encode(
+                    (_hex_to_b64("aa01") + "_" + _hex_to_b64("bb02")).encode("utf-8")
+                ).decode("ascii"),
+                "idmsdata": "step4-idms",
+                "akdata": {"step": 4},
+            },
+            2301,
+        ),
+        _encode_push_message(
+            topic,
+            {
+                "sessionUUID": "bridge-session",
+                "nextStep": "6",
+                "txnid": "2300_282820214_S",
+                "encryptedCode": "ciphertext",
+                "idmsdata": "step6-idms",
+                "akdata": {"step": 6},
+            },
+            2302,
+        ),
+    ])
+    sockets = iter([websocket, retry_websocket])
+    prover = MagicMock()
+    prover.get_message1.return_value = "abcd"
+    prover.process_message1.return_value = "ef01"
+    prover.process_message2.return_value = {"isVerified": True, "key": "deadbeef"}
+    prover.decrypt_message.return_value = "derived-device-code"
+    bootstrapper = TrustedDeviceBridgeBootstrapper(
+        timeout=1.0,
+        websocket_factory=lambda *_args: next(sockets),
+        prover_factory=lambda: prover,
+    )
+    monkeypatch.setattr(
+        bootstrapper,
+        "_generate_keypair",
+        MagicMock(return_value=(b"\x04public-key", _FakePrivateKey())),
+    )
+    monkeypatch.setattr(
+        bootstrapper,
+        "_generate_session_uuid",
+        MagicMock(return_value="bridge-session"),
+    )
+    session = MagicMock()
+    session.data = {}
+    session.request_raw.side_effect = [
+        _response(200),  # initial challenge boot
+        _response(200),  # step-2 POST before the malformed frame
+        _response(200),  # replacement challenge boot
+        _response(200),  # replacement step 2
+        _response(200),  # replacement step 4
+        _response(200),  # replacement code validate
+        _response(204),  # replacement completion
+    ]
+    state = bootstrapper.start(
+        session=session,
+        auth_endpoint="https://idmsa.apple.com/appleauth/auth",
+        headers={"scnt": "test-scnt"},
+        boot_context=_boot_context(topic),
+        user_agent="test-agent",
+    )
+    pyicloud_service._trusted_device_bridge_state = state
+    pyicloud_service._trusted_device_bridge = bootstrapper
+    pyicloud_service._two_factor_code_requested = True
+    pyicloud_service._session = session
+
+    with pytest.raises(ValueError, match="invalid literal"):
+        pyicloud_service.validate_2fa_code("050044")
+
+    # The step-2 POST already went out before the frame failed to decode.
+    assert session.request_raw.call_count == 2
+    assert pyicloud_service._trusted_device_bridge_state is None
+    assert pyicloud_service._two_factor_code_requested is False
+    # The service closes the socket through the challenge lifecycle, not the
+    # bootstrapper directly.
+    assert websocket.closed is True
+
+    # Cleanup is followed by a working replacement challenge; supply the
+    # boot context the real bridge needs to start a fresh challenge.
+    monkeypatch.setattr(
+        pyicloud_service, "_current_hsa2_boot_context", lambda: _boot_context(topic)
+    )
+    trust_session = MagicMock(
+        side_effect=lambda: pyicloud_service.data.update({"hsaTrustedBrowser": True})
+    )
+    monkeypatch.setattr(pyicloud_service, "trust_session", trust_session)
+
+    assert pyicloud_service.request_2fa_code() is True
+    replacement = pyicloud_service._trusted_device_bridge_state
+    assert replacement is not None
+    assert replacement is not state
+    assert pyicloud_service.validate_2fa_code("050044") is True
+
+    trust_session.assert_called_once_with()
+    # Success retires the replacement challenge and closes its socket too.
+    assert pyicloud_service._trusted_device_bridge_state is None
+    assert pyicloud_service._two_factor_code_requested is False
+    assert retry_websocket.closed is True
+
+
+def test_consumed_challenge_reports_replacement_required(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unusable bridge challenge must be retired, not silently reused."""
+    state, bridge, trust_session = _bridge_state_fixture(pyicloud_service, monkeypatch)
+    bridge.validate_code.side_effect = PyiCloudTrustedDeviceVerificationException(
+        "bridge verification failed"
+    )
+
+    with pytest.raises(
+        PyiCloudTrustedDeviceChallengeRequiredException,
+        match="request a new verification code",
+    ):
+        pyicloud_service.validate_2fa_code("123456")
+
+    assert pyicloud_service._trusted_device_bridge_state is None
+    # The caller closes the websocket when it abandons the challenge.
+    bridge.close.assert_called_once_with(state)
+    trust_session.assert_not_called()
+
+
+def test_spent_challenge_allows_fresh_bridge_request(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Retiring a spent challenge lets request_2fa_code start a new bridge."""
+    _, bridge, _ = _bridge_state_fixture(pyicloud_service, monkeypatch)
+    bridge.validate_code.side_effect = PyiCloudTrustedDeviceVerificationException(
+        "challenge consumed"
+    )
+
+    with pytest.raises(PyiCloudTrustedDeviceChallengeRequiredException):
+        pyicloud_service.validate_2fa_code("123456")
+
+    assert pyicloud_service._two_factor_code_requested is False
+    monkeypatch.setattr(
+        pyicloud_service, "_supports_trusted_device_bridge", lambda: True
+    )
+    bridge.start.return_value = MagicMock()
+    assert pyicloud_service.request_2fa_code() is True
+    bridge.start.assert_called_once()
+    assert pyicloud_service._trusted_device_bridge_state is bridge.start.return_value
+
+
+def test_interrupt_retires_bridge_challenge(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cancelled verification must not leave a reusable challenge."""
+    state, bridge, _ = _bridge_state_fixture(pyicloud_service, monkeypatch)
+    bridge.validate_code.side_effect = KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        pyicloud_service.validate_2fa_code("123456")
+
+    assert pyicloud_service._trusted_device_bridge_state is None
+    assert pyicloud_service._two_factor_code_requested is False
+    bridge.close.assert_called_once_with(state)
 
 
 def test_request_2fa_code_requests_sms_delivery(

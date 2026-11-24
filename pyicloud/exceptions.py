@@ -199,6 +199,17 @@ class PyiCloudTrustedDeviceVerificationException(PyiCloudAPIResponseException):
     """Trusted-device bridge verification exception."""
 
 
+class PyiCloudTrustedDeviceChallengeRequiredException(
+    PyiCloudTrustedDeviceVerificationException
+):
+    """The active 2FA challenge is unusable and a replacement must be requested.
+
+    Raised when a trusted-device bridge challenge has been consumed or cannot be
+    verified. Retrying without a fresh challenge would silently fall back to the
+    legacy verifier, so callers should request and deliver a new code first.
+    """
+
+
 class PyiCloudSecurityKeyException(PyiCloudException):
     """Security key confirmation exception."""
 
