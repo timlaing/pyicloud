@@ -3771,6 +3771,49 @@ def test_trusted_device_2fa_retries_invalid_codes_before_success() -> None:
     ]
 
 
+def test_spent_challenge_requests_replacement_code() -> None:
+    """A consumed bridge challenge triggers one replacement and a fresh code."""
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.two_factor_delivery_method = "trusted_device"
+    fake_api.request_2fa_code.return_value = True
+    fake_api.validate_2fa_code.side_effect = [
+        context_module.PyiCloudTrustedDeviceChallengeRequiredException("spent"),
+        True,
+    ]
+
+    with patch.object(context_module.typer, "prompt", side_effect=["111111", "222222"]):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code == 0
+    assert "a new code has been requested" in _unwrapped(result)
+    assert fake_api.request_2fa_code.call_count == 2  # initial + replacement
+    assert fake_api.validate_2fa_code.call_args_list == [
+        call("111111"),
+        call("222222"),
+    ]
+
+
+def test_spent_challenge_exhausts_attempts() -> None:
+    """Repeated spent challenges stop at the existing attempt limit."""
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.two_factor_delivery_method = "trusted_device"
+    fake_api.request_2fa_code.return_value = True
+    fake_api.validate_2fa_code.side_effect = (
+        context_module.PyiCloudTrustedDeviceChallengeRequiredException("spent")
+    )
+
+    with patch.object(
+        context_module.typer, "prompt", side_effect=["111111", "222222", "333333"]
+    ):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert fake_api.validate_2fa_code.call_count == 3
+    assert fake_api.request_2fa_code.call_count == 3  # initial + 2 replacements
+
+
 def test_sms_2fa_aborts_after_three_invalid_codes() -> None:
     """Auth login should stop after three invalid 2FA attempts."""
 
