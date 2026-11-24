@@ -1832,7 +1832,6 @@ class TestAdditionalWriteApis:
         """Creating and deleting hashtags updates local and remote state."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
-        svc._raw.modify.return_value = self._ok_modify()
 
         reminder = Reminder(
             id="Reminder/REM-TAG",
@@ -1848,19 +1847,23 @@ class TestAdditionalWriteApis:
             "hashtagIDs": {"counter": 7},
             "lastModifiedDate": {"counter": 3},
         }
-        svc._raw.lookup.return_value = CKLookupResponse(
-            records=[
-                _ck_record(
-                    "Reminder",
-                    reminder.id,
-                    {
-                        "ResolutionTokenMap": {
-                            "type": "STRING",
-                            "value": json.dumps({"map": existing_tokens}),
-                        },
-                    },
-                ),
-            ]
+
+        def lookup_response(token_map: str) -> CKLookupResponse:
+            return CKLookupResponse(
+                records=[
+                    _ck_record(
+                        "Reminder",
+                        reminder.id,
+                        {"ResolutionTokenMap": {"type": "STRING", "value": token_map}},
+                    ),
+                ]
+            )
+
+        svc._raw.lookup.return_value = lookup_response(
+            json.dumps({"map": existing_tokens})
+        )
+        svc._raw.modify.return_value = CKModifyResponse(
+            records=[self._ack(reminder.id, "Reminder", "ctag-rem-created")]
         )
         hashtag = svc.create_hashtag(reminder, "travel")
         assert hashtag.id.startswith("Hashtag/")
@@ -1894,6 +1897,9 @@ class TestAdditionalWriteApis:
             reminder.hashtag_ids
         )
 
+        assert reminder.record_change_tag == "ctag-rem-created"
+        saved_token_map = reminder_op["record"]["fields"]["ResolutionTokenMap"]["value"]
+        svc._raw.lookup.return_value = lookup_response(saved_token_map)
         hashtag.record_change_tag = "ctag-tag"
         svc._raw.modify.side_effect = [
             CKModifyResponse(
@@ -1915,7 +1921,7 @@ class TestAdditionalWriteApis:
         with pytest.raises(RemindersApiError, match="CONFLICT"):
             svc.delete_hashtag(reminder, hashtag)
         assert reminder.hashtag_ids == [hashtag.id.split("/")[1]]
-        assert reminder.record_change_tag == "ctag-rem"
+        assert reminder.record_change_tag == "ctag-rem-created"
 
         svc.delete_hashtag(reminder, hashtag)
         assert reminder.record_change_tag == "ctag-rem-new"
@@ -1931,8 +1937,19 @@ class TestAdditionalWriteApis:
         delete_reminder = delete_reminder_op.model_dump(mode="json", exclude_none=True)
         assert delete_reminder["record"]["fields"]["HashtagIDs"]["value"] == []
 
-        for update in (reminder_op, delete_reminder):
-            assert update["record"]["recordChangeTag"] == "ctag-rem"
+        conflict_reminder = svc._raw.modify.call_args_list[1].kwargs["operations"][0]
+        assert svc._raw.lookup.call_count == 3
+        for update, change_tag, hashtag_counter, modified_counter in (
+            (reminder_op, "ctag-rem", 8, 4),
+            (
+                conflict_reminder.model_dump(mode="json", exclude_none=True),
+                "ctag-rem-created",
+                9,
+                5,
+            ),
+            (delete_reminder, "ctag-rem-created", 9, 5),
+        ):
+            assert update["record"]["recordChangeTag"] == change_tag
             fields = update["record"]["fields"]
             assert set(fields) == {
                 "HashtagIDs",
@@ -1941,8 +1958,8 @@ class TestAdditionalWriteApis:
             }
             tokens = json.loads(fields["ResolutionTokenMap"]["value"])["map"]
             assert tokens["titleDocument"] == existing_token
-            assert tokens["hashtagIDs"]["counter"] == 8
-            assert tokens["lastModifiedDate"]["counter"] == 4
+            assert tokens["hashtagIDs"]["counter"] == hashtag_counter
+            assert tokens["lastModifiedDate"]["counter"] == modified_counter
 
     def test_delete_hashtag_rejects_mismatched_parent(self) -> None:
         """Deleting a hashtag with a mismatched parent raises ValueError."""
