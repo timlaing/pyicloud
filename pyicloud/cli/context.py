@@ -432,7 +432,12 @@ class CLIState:
                 except PyiCloudTrustedDeviceChallengeRequiredException:
                     if attempt == max_attempts - 1:
                         raise CLIAbort("Failed to verify the 2FA code.") from None
-                    api.request_2fa_code()
+                    try:
+                        api.request_2fa_code()
+                    except PyiCloudTrustedDevicePromptException as request_exc:
+                        raise CLIAbort(
+                            "Failed to request the 2FA trusted-device prompt."
+                        ) from request_exc
                     self.console.print(
                         "The previous 2FA challenge is no longer valid; "
                         "a new code has been requested."

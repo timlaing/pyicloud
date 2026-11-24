@@ -3814,6 +3814,26 @@ def test_spent_challenge_exhausts_attempts() -> None:
     assert fake_api.request_2fa_code.call_count == 3  # initial + 2 replacements
 
 
+def test_spent_challenge_prompt_failure_aborts() -> None:
+    """A failed replacement prompt is reported instead of issuing a traceback."""
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.two_factor_delivery_method = "trusted_device"
+    fake_api.request_2fa_code.side_effect = [
+        True,
+        context_module.PyiCloudTrustedDevicePromptException("no prompt"),
+    ]
+    fake_api.validate_2fa_code.side_effect = (
+        context_module.PyiCloudTrustedDeviceChallengeRequiredException("spent")
+    )
+
+    with patch.object(context_module.typer, "prompt", side_effect=["111111"]):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert "Failed to request the 2FA trusted-device prompt." in _unwrapped(result)
+
+
 def test_sms_2fa_aborts_after_three_invalid_codes() -> None:
     """Auth login should stop after three invalid 2FA attempts."""
 
