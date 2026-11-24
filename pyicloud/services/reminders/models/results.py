@@ -13,14 +13,15 @@ from .domain import (
     RecurrenceRule,
     Reminder,
     URLAttachment,
+    VehicleTrigger,
 )
 
 
 class AlarmWithTrigger(FrozenServiceModel):
-    """Alarm paired with its optional location or date trigger."""
+    """Alarm paired with its optional trigger."""
 
     alarm: Alarm
-    trigger: LocationTrigger | DateTrigger | None = None
+    trigger: LocationTrigger | DateTrigger | VehicleTrigger | None = None
 
 
 class ListRemindersResult(FrozenServiceModel):
@@ -29,7 +30,7 @@ class ListRemindersResult(FrozenServiceModel):
 
     reminders: list[Reminder]
     alarms: dict[str, Alarm]
-    triggers: dict[str, LocationTrigger | DateTrigger]
+    triggers: dict[str, LocationTrigger | DateTrigger | VehicleTrigger]
     attachments: dict[str, URLAttachment | ImageAttachment]
     hashtags: dict[str, Hashtag]
     recurrence_rules: dict[str, RecurrenceRule]

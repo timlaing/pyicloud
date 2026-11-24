@@ -38,6 +38,7 @@ from .models import (
     Reminder,
     ReminderChangeEvent,
     RemindersList,
+    VehicleTrigger,
 )
 
 TRelated = TypeVar("TRelated")  # pylint: disable=invalid-name
@@ -352,7 +353,7 @@ class RemindersReadAPI:
         *,
         reminders_map: dict[str, Reminder],
         alarms: dict[str, Alarm],
-        triggers: dict[str, LocationTrigger | DateTrigger],
+        triggers: dict[str, LocationTrigger | DateTrigger | VehicleTrigger],
         attachments: dict[str, Attachment],
         hashtags: dict[str, Hashtag],
         recurrence_rules: dict[str, RecurrenceRule],
@@ -429,7 +430,7 @@ class RemindersReadAPI:
 
         reminders_map: dict[str, Reminder] = {}
         alarms: dict[str, Alarm] = {}
-        triggers: dict[str, LocationTrigger | DateTrigger] = {}
+        triggers: dict[str, LocationTrigger | DateTrigger | VehicleTrigger] = {}
         attachments: dict[str, Attachment] = {}
         hashtags: dict[str, Hashtag] = {}
         recurrence_rules: dict[str, RecurrenceRule] = {}

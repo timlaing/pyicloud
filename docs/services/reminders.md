@@ -180,6 +180,9 @@ for row in reminders.alarms_for(reminder):
     print(row.alarm.id, row.trigger.id if row.trigger else None)
 ```
 
+Existing vehicle alarms are returned as `VehicleTrigger` records. Their optional
+`event` is the CloudKit integer code. The API supports reading these triggers.
+
 _Add hashtags, URL attachments, and recurrence rules:_
 
 ```python

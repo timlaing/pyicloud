@@ -30,11 +30,17 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Recover reminder titles and notes for display when formatting attributes cannot be decoded, while protecting unreadable documents from updates.
+
 - Align the minimum Pydantic pin with the declared 2.14.1 runtime lower bound so the minimum-runtime installation check passes again.
 - Cache successful PCS queries for six hours for Photos, Drive, Notes, and Reminders instead of
   repeatedly prompting for Advanced Data Protection consent during polling.
   Refresh expired queries, clear cached results on authentication reset, and
   leave failed queries uncached so subsequent service access can try again.
+
+### Added
+
+- Expose existing Reminders vehicle alarms and their event codes through the read APIs and CLI.
 
 ## [2026.11.2] - 2026-11-13
 

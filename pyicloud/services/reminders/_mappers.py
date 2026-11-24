@@ -10,6 +10,7 @@ from typing import Any, cast
 from pyicloud.common.cloudkit import CKRecord
 
 from ._protocol import (
+    CRDTDecodeError,
     _as_raw_id,
     _decode_attachment_url,
     _decode_cloudkit_text_value,
@@ -17,6 +18,7 @@ from ._protocol import (
     _decode_due_date_delta_alerts,
     _decode_nsdatecomponents,
     _decode_urgent_presentation_alarms,
+    _recover_crdt_display_text,
     _ref_name,
     _structure_has_visible_text,
 )
@@ -34,6 +36,7 @@ from .models import (
     RemindersList,
     UrgentPresentationAlarms,
     URLAttachment,
+    VehicleTrigger,
 )
 
 Attachment = URLAttachment | ImageAttachment
@@ -173,6 +176,35 @@ class RemindersRecordMapper:
             record_change_tag=rec.recordChangeTag,
         )
 
+    def _read_reminder_text(
+        self,
+        document: str | bytes,
+        field_name: str,
+        record_name: str,
+        undecodable_fields: list[str],
+    ) -> str:
+        """Read text for display and flag documents that cannot be edited."""
+        try:
+            return _decode_crdt_document(document)
+        except Exception as exc:
+            undecodable_fields.append(field_name)
+            recovered = (
+                _recover_crdt_display_text(document)
+                if isinstance(exc, CRDTDecodeError)
+                else None
+            )
+            if recovered is not None:
+                self._logger.debug(
+                    "Recovered display text from %s on %s with unreadable attributes",
+                    field_name,
+                    record_name,
+                )
+                return recovered
+            self._logger.warning(
+                "%s decode failed for %s: %s", field_name, record_name, exc
+            )
+            return ""
+
     def record_to_reminder(self, rec: CKRecord) -> Reminder:  # noqa: S3776
         """Map a CloudKit reminder record to a ``Reminder`` domain model."""
         fields = rec.fields
@@ -186,39 +218,21 @@ class RemindersRecordMapper:
 
         undecodable_text_fields: list[str] = []
         title_doc = fields.get_value("TitleDocument")
-        title = "Untitled"
-        if title_doc:
-            try:
-                title = self._coerce_text(
-                    _decode_crdt_document(title_doc),
-                    field_name="TitleDocument",
-                    record_name=rec.recordName,
-                )
-            except Exception as exc:
-                self._logger.warning(
-                    "TitleDocument decode failed for %s: %s",
-                    rec.recordName,
-                    exc,
-                )
-                title = ""
-                undecodable_text_fields.append("TitleDocument")
-
         notes_doc = fields.get_value("NotesDocument")
-        desc = ""
-        if notes_doc:
-            try:
-                desc = self._coerce_text(
-                    _decode_crdt_document(notes_doc),
-                    field_name="NotesDocument",
-                    record_name=rec.recordName,
-                )
-            except Exception as exc:
-                self._logger.warning(
-                    "NotesDocument decode failed for %s: %s",
-                    rec.recordName,
-                    exc,
-                )
-                undecodable_text_fields.append("NotesDocument")
+        title = (
+            self._read_reminder_text(
+                title_doc, "TitleDocument", rec.recordName, undecodable_text_fields
+            )
+            if title_doc
+            else "Untitled"
+        )
+        desc = (
+            self._read_reminder_text(
+                notes_doc, "NotesDocument", rec.recordName, undecodable_text_fields
+            )
+            if notes_doc
+            else ""
+        )
 
         # The baseline update() compares against has to reflect the text the
         # server actually holds. _decode_crdt_document reads the cached
@@ -299,7 +313,7 @@ class RemindersRecordMapper:
 
     def record_to_alarm_trigger(
         self, rec: CKRecord
-    ) -> LocationTrigger | DateTrigger | None:
+    ) -> LocationTrigger | DateTrigger | VehicleTrigger | None:
         """Map a CloudKit alarm trigger record to a typed trigger model."""
         fields = rec.fields
         trigger_type = fields.get_value("Type") or ""
@@ -339,6 +353,15 @@ class RemindersRecordMapper:
                 date_components=_decode_nsdatecomponents(
                     fields.get_value("DateComponentsData")
                 ),
+                record_change_tag=rec.recordChangeTag,
+            )
+
+        if trigger_type == "Vehicle":
+            return VehicleTrigger(
+                **self._route,
+                id=rec.recordName,
+                alarm_id=alarm_id,
+                event=fields.get_value("Event"),
                 record_change_tag=rec.recordChangeTag,
             )
 

@@ -81,6 +81,7 @@ from pyicloud.services.reminders.models import (
     RemindersList,
     UrgentPresentationAlarms,
     URLAttachment,
+    VehicleTrigger,
 )
 
 account_index_module = importlib.import_module("pyicloud.cli.account_index")
@@ -805,7 +806,7 @@ class FakeReminders:
                 trigger_id="Trigger/A",
             )
         }
-        self.trigger_rows = {
+        self.trigger_rows: dict[str, LocationTrigger | VehicleTrigger] = {
             "Trigger/A": LocationTrigger(
                 id="Trigger/A",
                 alarm_id="Alarm/A",
@@ -5533,6 +5534,14 @@ def test_reminders_subgroup_commands() -> None:
 
     fake_api = FakeAPI()
 
+    alarm = fake_api.reminders.alarm_rows["Alarm/A"]
+    fake_api.reminders.trigger_rows[alarm.trigger_id] = VehicleTrigger(
+        id=alarm.trigger_id, alarm_id=alarm.id, event=1
+    )
+    alarm_table = _invoke(fake_api, "reminders", "alarm", "list", "Reminder/A")
+    assert alarm_table.exit_code == 0
+    assert "Vehicle" in alarm_table.stdout
+
     alarm_list_result = _invoke(
         fake_api,
         "reminders",
@@ -5544,6 +5553,7 @@ def test_reminders_subgroup_commands() -> None:
     alarm_list_payload = json.loads(alarm_list_result.stdout)
     assert alarm_list_result.exit_code == 0
     assert alarm_list_payload[0]["alarm"]["id"] == "Alarm/A"
+    assert alarm_list_payload[0]["trigger"]["event"] == 1
 
     alarm_create_result = _invoke(
         fake_api,
@@ -5568,10 +5578,11 @@ def test_reminders_subgroup_commands() -> None:
     alarm_create_payload = json.loads(alarm_create_result.stdout)
     assert alarm_create_result.exit_code == 0
     assert alarm_create_payload["trigger"]["title"] == "Home"
-    assert (
-        fake_api.reminders.trigger_rows[alarm_create_payload["trigger"]["id"]].proximity
-        == Proximity.LEAVING
-    )
+    created_trigger = fake_api.reminders.trigger_rows[
+        alarm_create_payload["trigger"]["id"]
+    ]
+    assert isinstance(created_trigger, LocationTrigger)
+    assert created_trigger.proximity == Proximity.LEAVING
 
     hashtag_list_result = _invoke(
         fake_api,

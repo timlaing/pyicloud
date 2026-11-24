@@ -74,6 +74,7 @@ from pyicloud.services.reminders.models import (
     ReminderChangeEvent,
     RemindersList,
     URLAttachment,
+    VehicleTrigger,
 )
 from pyicloud.services.reminders.protobuf import (
     reminders_pb2,
@@ -1190,8 +1191,10 @@ class TestRecordToAlarmTrigger:
 
         assert "Unsupported AlarmTrigger" not in caplog.text
 
-    def test_vehicle_trigger_is_ignored(self, service: RemindersService) -> None:
-        """Vehicle triggers are ignored."""
+    def test_vehicle_trigger_preserves_event(
+        self, service: RemindersService, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Vehicle triggers retain their event code without a warning."""
         rec = _ck_record(
             "AlarmTrigger",
             "AlarmTrigger/TRIG-003",
@@ -1204,7 +1207,14 @@ class TestRecordToAlarmTrigger:
                 },
             },
         )
-        assert service._record_to_alarm_trigger(rec) is None
+        with caplog.at_level(logging.WARNING):
+            trigger = service._record_to_alarm_trigger(rec)
+
+        assert isinstance(trigger, VehicleTrigger)
+        assert trigger.trigger_type == "Vehicle"
+        assert trigger.event == 1
+        assert trigger.alarm_id == "Alarm/ALARM-003"
+        assert not caplog.records
 
     def test_unknown_type_returns_none(self, service: RemindersService) -> None:
         """Unknown trigger types return None."""

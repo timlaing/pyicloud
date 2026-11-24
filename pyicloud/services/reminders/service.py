@@ -67,6 +67,7 @@ from .models import (
     ReminderChangeEvent,
     RemindersList,
     URLAttachment,
+    VehicleTrigger,
 )
 from .models.domain import ZonedRemindersRecord
 
@@ -615,7 +616,7 @@ class RemindersService(BaseService):
 
     def _record_to_alarm_trigger(
         self, rec: CKRecord
-    ) -> LocationTrigger | DateTrigger | None:
+    ) -> LocationTrigger | DateTrigger | VehicleTrigger | None:
         return self._mapper.record_to_alarm_trigger(rec)
 
     def _record_to_attachment(self, rec: CKRecord) -> Attachment | None:

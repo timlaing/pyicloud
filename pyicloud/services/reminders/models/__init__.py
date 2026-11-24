@@ -17,6 +17,7 @@ from .domain import (
     RemindersList,
     UrgentPresentationAlarms,
     URLAttachment,
+    VehicleTrigger,
 )
 from .results import AlarmWithTrigger, ListRemindersResult
 
@@ -39,4 +40,5 @@ __all__ = [
     "RemindersList",
     "URLAttachment",
     "UrgentPresentationAlarms",
+    "VehicleTrigger",
 ]

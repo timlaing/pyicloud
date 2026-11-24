@@ -189,6 +189,16 @@ class DateTrigger(ZonedRemindersRecord):
     record_change_tag: str | None = None
 
 
+class VehicleTrigger(ZonedRemindersRecord):
+    """Vehicle alarm trigger with Apple's event code preserved as received."""
+
+    id: str
+    alarm_id: str
+    trigger_type: Literal["Vehicle"] = "Vehicle"
+    event: int | None = None
+    record_change_tag: str | None = None
+
+
 # --- Attachment records ---
 
 

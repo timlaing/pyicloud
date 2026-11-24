@@ -755,9 +755,9 @@ class TestRemindersReadsBranches:
                 _minimal_reminder_record("Reminder/A", "List/A"),
                 _ck_record(
                     "AlarmTrigger",
-                    "AlarmTrigger/TRIG-VEH",
+                    "AlarmTrigger/TRIG-UNKNOWN",
                     {
-                        "Type": {"type": "STRING", "value": "Vehicle"},
+                        "Type": {"type": "STRING", "value": "FutureType"},
                         "Alarm": {
                             "type": "REFERENCE",
                             "value": {"recordName": "Alarm/A"},
@@ -850,26 +850,20 @@ class TestRemindersReadsBranches:
                         "AlarmTrigger",
                         "AlarmTrigger/TRIG-1",
                         {
-                            "Type": {"type": "STRING", "value": "Location"},
+                            "Type": {"type": "STRING", "value": "Vehicle"},
                             "Alarm": {
                                 "type": "REFERENCE",
                                 "value": {"recordName": "Alarm/AL-1"},
                             },
-                            "Title": {"type": "STRING", "value": "Office"},
-                            "Address": {"type": "STRING", "value": "Addr"},
-                            "Latitude": {"type": "DOUBLE", "value": 48.0},
-                            "Longitude": {"type": "DOUBLE", "value": 2.0},
-                            "Radius": {"type": "DOUBLE", "value": 100.0},
-                            "Proximity": {"type": "INT64", "value": 1},
-                            "LocationUID": {"type": "STRING", "value": "LOC-1"},
+                            "Event": {"type": "INT64", "value": 0},
                         },
                     ),
                     _minimal_reminder_record("Reminder/A", "List/A"),
                     _ck_record(
                         "AlarmTrigger",
-                        "AlarmTrigger/TRIG-VEH",
+                        "AlarmTrigger/TRIG-UNKNOWN",
                         {
-                            "Type": {"type": "STRING", "value": "Vehicle"},
+                            "Type": {"type": "STRING", "value": "FutureType"},
                             "Alarm": {
                                 "type": "REFERENCE",
                                 "value": {"recordName": "Alarm/AL-1"},
@@ -893,6 +887,7 @@ class TestRemindersReadsBranches:
         assert out[0].alarm.id == "Alarm/AL-1"
         assert out[0].trigger is not None
         assert out[0].trigger.id == "AlarmTrigger/TRIG-1"
+        assert out[0].trigger.model_dump()["event"] == 0
 
 
 # ---------------------------------------------------------------------------

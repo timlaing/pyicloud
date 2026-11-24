@@ -38,6 +38,7 @@ from pyicloud.services.reminders.models import (
     EarlyReminder,
     EarlyReminderUnit,
     ImageAttachment,
+    LocationTrigger,
     Proximity,
     RecurrenceFrequency,
     Reminder,
@@ -1049,28 +1050,32 @@ def reminders_alarm_list(
     if state.json_output:
         state.write_json(payload)
         return
+    rows = []
+    for row in payload:
+        trigger = row.trigger
+        location = trigger if isinstance(trigger, LocationTrigger) else None
+        rows.append((
+            row.alarm.id,
+            trigger.id if trigger else None,
+            type(trigger).__name__.removesuffix("Trigger") if trigger else None,
+            location.title if location else None,
+            location.address if location else None,
+            location.radius if location else None,
+            _proximity_label(location.proximity if location else None),
+        ))
     state.console.print(
         console_table(
             "Reminder Alarms",
             [
                 "Alarm ID",
                 "Trigger ID",
+                "Type",
                 "Title",
                 "Address",
                 "Radius",
                 "Proximity",
             ],
-            [
-                (
-                    row.alarm.id,
-                    row.trigger.id if row.trigger else None,
-                    row.trigger.title if row.trigger else None,
-                    row.trigger.address if row.trigger else None,
-                    row.trigger.radius if row.trigger else None,
-                    _proximity_label(row.trigger.proximity if row.trigger else None),
-                )
-                for row in payload
-            ],
+            rows,
         )
     )
 

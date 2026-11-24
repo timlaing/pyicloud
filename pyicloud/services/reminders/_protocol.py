@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from functools import lru_cache
 import gzip
 import json as _json
 import logging
@@ -14,6 +15,8 @@ import uuid
 from xml.parsers.expat import ExpatError
 import zlib
 
+from google.protobuf import descriptor_pb2, descriptor_pool, message_factory
+from google.protobuf.message import DecodeError
 from pydantic import ValidationError
 
 from pyicloud.common.cloudkit.models import CKFields
@@ -357,10 +360,16 @@ def _extract_nsdate_components(root: dict[str, object]) -> dict[str, object]:
     return decoded
 
 
-def _decode_crdt_document(  # noqa: S3776
-    encrypted_value: str | bytes,
-) -> str:
+def _decode_crdt_document(encrypted_value: str | bytes) -> str:
     """Decode a CRDT document (TitleDocument or NotesDocument)."""
+    try:
+        return _decode_cloudkit_text_value(_parse_crdt_text(encrypted_value))
+    except UnicodeDecodeError as exc:
+        raise CRDTDecodeError("CRDT document text is not valid UTF-8") from exc
+
+
+def _unpack_crdt_document(encrypted_value: str | bytes) -> bytes:
+    """Decode a CloudKit value and unwrap its compression."""
     data = encrypted_value
     if isinstance(data, str):
         padding = 4 - (len(data) % 4)
@@ -377,8 +386,13 @@ def _decode_crdt_document(  # noqa: S3776
         try:
             data = gzip.decompress(data)
         except OSError as exc:
-            LOGGER.debug("CRDT decompress skipped: %s (%s)", exc, data[:10])
+            LOGGER.debug("CRDT decompress skipped: %s", exc)
+    return data
 
+
+def _parse_crdt_text(encrypted_value: str | bytes) -> str | bytes:
+    """Read the cached text from an Apple protobuf document."""
+    data = _unpack_crdt_document(encrypted_value)
     try:
         document = versioned_document_pb2.Document()  # type: ignore[attr-defined]
         document.ParseFromString(data)
@@ -404,11 +418,55 @@ def _decode_crdt_document(  # noqa: S3776
         value = reminders_pb2.String()  # type: ignore[attr-defined]
         value.ParseFromString(data)
         if value.string:
-            return cast(str, value.string)
+            return cast(str | bytes, value.string)
     except Exception as exc:
         LOGGER.debug("bare String parse failed: %s", exc)
 
     raise CRDTDecodeError("Unable to decode CRDT document")
+
+
+@lru_cache(maxsize=1)
+def _topotext_with_opaque_attributes() -> type[Any]:
+    """Build a read-only schema that treats attribute runs as opaque bytes."""
+    # Protobuf builds its descriptor message classes at runtime.
+    # pylint: disable-next=no-member
+    schema = descriptor_pb2.FileDescriptorProto.FromString(
+        reminders_pb2.DESCRIPTOR.serialized_pb
+    )
+    topotext = next(
+        message for message in schema.message_type if message.name == "String"
+    )
+    attribute = next(field for field in topotext.field if field.name == "attributeRun")
+    # pylint: disable-next=no-member
+    attribute.type = descriptor_pb2.FieldDescriptorProto.TYPE_BYTES
+    attribute.ClearField("type_name")
+    pool = descriptor_pool.DescriptorPool()
+    pool.Add(schema)
+    return cast(
+        type[Any],
+        message_factory.GetMessageClass(pool.FindMessageTypeByName("topotext.String")),
+    )
+
+
+def _recover_crdt_display_text(encrypted_value: str | bytes) -> str | None:
+    """Recover cached text from a wrapped document with unreadable attributes."""
+    document = versioned_document_pb2.Document()  # type: ignore[attr-defined]
+    value = _topotext_with_opaque_attributes()()
+    try:
+        document.ParseFromString(_unpack_crdt_document(encrypted_value))
+        if not document.version:
+            return None
+        value.ParseFromString(document.version[0].data)
+    except (CRDTDecodeError, DecodeError, EOFError):
+        return None
+
+    text = value.string
+    if not isinstance(text, str) or not text or not value.attributeRun:
+        return None
+    if not value.substring or not value.timestamp.clock:
+        return None
+    visible_units = sum(part.length for part in value.substring if not part.tombstone)
+    return text if visible_units == len(text.encode("utf-16-le")) // 2 else None
 
 
 def _encode_crdt_document(text: str) -> str:
