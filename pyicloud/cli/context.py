@@ -481,17 +481,13 @@ class CLIState:
                 except PyiCloudAccountLockedException as exc:
                     raise CLIAbort(f"{exc}. Unlock it before trying again.") from exc
                 except PyiCloudConnectionException as exc:
-                    if attempt == max_attempts - 1:
-                        raise CLIAbort(
-                            f"Could not reach iCloud to verify the 2FA code: {exc}. "
-                            "Check your connection and try again."
-                        ) from exc
-                    self.console.print(
+                    # An outage says nothing about whether the code was
+                    # accepted, so never replay it against a cleared bridge
+                    # challenge or report it as a rejected code.
+                    raise CLIAbort(
                         f"Could not reach iCloud to verify the 2FA code: {exc}. "
                         "Check your connection and try again."
-                    )
-                    prompt_text = "Re-enter the same 2FA code"
-                    continue
+                    ) from exc
                 except PyiCloudTrustedDeviceVerificationException as exc:
                     raise CLIAbort(
                         "Failed to verify the 2FA trusted-device code."

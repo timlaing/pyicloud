@@ -3975,8 +3975,8 @@ def test_spent_challenge_replacement_connection_failure() -> None:
 
     assert result.exit_code != 0
     assert (
-        "Could not reach iCloud to request a new 2FA code: Connection refused. Check your connection and try again."
-        in str(result.exception)
+        "Could not reach iCloud to request a new 2FA code: Connection refused. "
+        "Check your connection and try again." in str(result.exception)
     )
     assert fake_api.validate_2fa_code.call_args_list == [call("111111")]
     assert fake_api.request_2fa_code.call_count == 2
@@ -4047,8 +4047,8 @@ def test_spent_challenge_replacement_os_error() -> None:
 
     assert result.exit_code != 0
     assert (
-        "Failed to access the session directory (Permission denied). Check permissions and try again."
-        in str(result.exception)
+        "Failed to access the session directory (Permission denied). "
+        "Check permissions and try again." in str(result.exception)
     )
     assert fake_api.validate_2fa_code.call_args_list == [call("111111")]
     assert fake_api.request_2fa_code.call_count == 2
@@ -4102,39 +4102,8 @@ def test_spent_challenge_prompts_new_code() -> None:
     ]
 
 
-def test_validate_2fa_retryable_connection_failure_prompts_same_code() -> None:
-    """A pre-send connection failure prompts the user to re-enter the same code."""
-    fake_api = FakeAPI()
-    fake_api.requires_2fa = True
-    fake_api.two_factor_delivery_method = "trusted_device"
-    fake_api.request_2fa_code.return_value = True
-    fake_api.validate_2fa_code.side_effect = [
-        PyiCloudConnectionException("Network timeout"),
-        True,
-    ]
-
-    with patch.object(
-        context_module.typer, "prompt", side_effect=["111111", "111111"]
-    ) as mock_prompt:
-        result = _invoke(fake_api, "auth", "login", interactive=True)
-
-    assert result.exit_code == 0
-    assert (
-        "Could not reach iCloud to verify the 2FA code: Network timeout. Check your connection and try again."
-        in _unwrapped(result)
-    )
-    assert mock_prompt.call_args_list == [
-        call("Enter 2FA code"),
-        call("Re-enter the same 2FA code"),
-    ]
-    assert fake_api.validate_2fa_code.call_args_list == [
-        call("111111"),
-        call("111111"),
-    ]
-
-
-def test_validate_2fa_connection_failure_exhausts_attempts() -> None:
-    """Persistent connection failures during verification exhaust attempts."""
+def test_validate_2fa_connection_failure_aborts() -> None:
+    """An outage must not replay a code against an already-cleared challenge."""
     fake_api = FakeAPI()
     fake_api.requires_2fa = True
     fake_api.two_factor_delivery_method = "trusted_device"
@@ -4144,20 +4113,17 @@ def test_validate_2fa_connection_failure_exhausts_attempts() -> None:
     )
 
     with patch.object(
-        context_module.typer, "prompt", side_effect=["111111", "111111", "111111"]
+        context_module.typer, "prompt", side_effect=["111111"]
     ) as mock_prompt:
         result = _invoke(fake_api, "auth", "login", interactive=True)
 
     assert result.exit_code != 0
     assert (
-        "Could not reach iCloud to verify the 2FA code: Network timeout. Check your connection and try again."
-        in str(result.exception)
+        "Could not reach iCloud to verify the 2FA code: Network timeout. "
+        "Check your connection and try again." in str(result.exception)
     )
-    assert mock_prompt.call_args_list == [
-        call("Enter 2FA code"),
-        call("Re-enter the same 2FA code"),
-        call("Re-enter the same 2FA code"),
-    ]
+    assert mock_prompt.call_args_list == [call("Enter 2FA code")]
+    fake_api.validate_2fa_code.assert_called_once_with("111111")
 
 
 def test_legacy_w_rejected_code_prompts_reenter() -> None:

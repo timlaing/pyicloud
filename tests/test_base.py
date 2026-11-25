@@ -1055,6 +1055,23 @@ def test_bridge_connection_failure_requires_replacement(
     bridge.close.assert_called_once_with(state)
 
 
+def test_trust_outage_after_accepted_code_propagates(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed session trust must not look like a rejected verification code."""
+
+    _, bridge, trust_session = _bridge_state_fixture(pyicloud_service, monkeypatch)
+    bridge.validate_code.return_value = True
+    trust_session.side_effect = PyiCloudConnectionException("offline")
+
+    with pytest.raises(PyiCloudConnectionException, match="offline"):
+        pyicloud_service.validate_2fa_code("123456")
+
+    bridge.validate_code.assert_called_once()
+    trust_session.assert_called_once_with()
+    assert pyicloud_service._trusted_device_bridge_state is None
+
+
 @pytest.mark.parametrize(
     "error",
     [
