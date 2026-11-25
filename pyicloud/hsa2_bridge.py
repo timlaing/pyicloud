@@ -592,21 +592,44 @@ def _decode_fields(data: bytes) -> dict[int, list[Any]]:
     return fields
 
 
+def _require_bytes_wire_field(value: Any, error_message: str) -> bytes:
+    """Validate that a wire field is length-delimited bytes."""
+    if not isinstance(value, (bytes, bytearray)):
+        raise PyiCloudTrustedDevicePromptException(error_message)
+    return bytes(value)
+
+
+def _require_uint_wire_field(value: Any, error_message: str) -> int:
+    """Validate that a wire field is an unsigned integer varint."""
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise PyiCloudTrustedDevicePromptException(error_message)
+    return value
+
+
 def _decode_connection_response(message: bytes) -> _ConnectionResponse:
     """Decode the server's websocket bootstrap response."""
     fields = _decode_fields(message)
     push_token_b64 = ""
     if fields.get(1):
+        token_bytes = _require_bytes_wire_field(
+            fields[1][0], "Malformed bridge connection response push token."
+        )
         try:
-            push_token_b64 = fields[1][0].decode("ascii")
+            push_token_b64 = token_bytes.decode("ascii")
         except UnicodeDecodeError as exc:
             raise PyiCloudTrustedDevicePromptException(
                 "Malformed bridge connection response push token."
             ) from exc
-    status = int(fields.get(2, [0])[0])
+    status = _require_uint_wire_field(
+        fields.get(2, [0])[0],
+        "Malformed bridge connection response status.",
+    )
     server_timestamp_seconds = None
     if fields.get(3):
-        server_timestamp_seconds = int(fields[3][0])
+        server_timestamp_seconds = _require_uint_wire_field(
+            fields[3][0],
+            "Malformed bridge connection response timestamp.",
+        )
     return _ConnectionResponse(
         push_token_b64=push_token_b64,
         status=status,
@@ -617,9 +640,18 @@ def _decode_connection_response(message: bytes) -> _ConnectionResponse:
 def _decode_push_message(message: bytes) -> _PushMessage:
     """Decode one push-delivery frame from the bridge websocket."""
     fields = _decode_fields(message)
-    topic = bytes(fields.get(1, [b""])[0])
-    message_id = int(fields.get(2, [0])[0])
-    payload = bytes(fields.get(4, [b""])[0])
+    topic = _require_bytes_wire_field(
+        fields.get(1, [b""])[0],
+        "Malformed bridge push topic.",
+    )
+    message_id = _require_uint_wire_field(
+        fields.get(2, [0])[0],
+        "Malformed bridge push message ID.",
+    )
+    payload = _require_bytes_wire_field(
+        fields.get(4, [b""])[0],
+        "Malformed bridge push payload.",
+    )
     return _PushMessage(topic=topic, message_id=message_id, payload=payload)
 
 
@@ -632,27 +664,61 @@ def _decode_channel_subscription_response(
 
     payload_values = fields.get(1)
     if payload_values:
-        payload_fields = _decode_fields(bytes(payload_values[0]))
+        raw_payload = _require_bytes_wire_field(
+            payload_values[0],
+            "Malformed bridge channel subscription payload.",
+        )
+        payload_fields = _decode_fields(raw_payload)
         for app_response_value in payload_fields.get(1, []):
-            app_response_fields = _decode_fields(bytes(app_response_value))
-            topic_value = app_response_fields.get(1, [b""])[0]
-            if isinstance(topic_value, bytes):
-                topics.append(topic_value.decode("utf-8", "ignore"))
+            raw_app_response = _require_bytes_wire_field(
+                app_response_value,
+                "Malformed bridge channel subscription app response.",
+            )
+            app_response_fields = _decode_fields(raw_app_response)
+            topic_value = _require_bytes_wire_field(
+                app_response_fields.get(1, [b""])[0],
+                "Malformed bridge channel subscription topic.",
+            )
+            topic_name = topic_value.decode("utf-8", "ignore")
+            if topic_name:
+                topics.append(topic_name)
+
+    message_id = _require_uint_wire_field(
+        fields.get(2, [0])[0],
+        "Malformed bridge channel subscription message ID.",
+    )
+    status = _require_uint_wire_field(
+        fields.get(3, [0])[0],
+        "Malformed bridge channel subscription status.",
+    )
+    retry_interval_seconds = _require_uint_wire_field(
+        fields.get(4, [0])[0],
+        "Malformed bridge channel subscription retry interval.",
+    )
 
     return _ChannelSubscriptionResponse(
-        message_id=int(fields.get(2, [0])[0]),
-        status=int(fields.get(3, [0])[0]),
-        retry_interval_seconds=int(fields.get(4, [0])[0]),
-        topics=tuple(topic for topic in topics if topic),
+        message_id=message_id,
+        status=status,
+        retry_interval_seconds=retry_interval_seconds,
+        topics=tuple(topics),
     )
 
 
 def _decode_acknowledgement_message(message: bytes) -> _AcknowledgementMessage:
     """Decode a push acknowledgment frame from the bridge websocket."""
     fields = _decode_fields(message)
-    topic = bytes(fields.get(1, [b""])[0])
-    message_id = int(fields.get(2, [0])[0])
-    delivery_status = int(fields.get(3, [0])[0])
+    topic = _require_bytes_wire_field(
+        fields.get(1, [b""])[0],
+        "Malformed bridge push acknowledgment topic.",
+    )
+    message_id = _require_uint_wire_field(
+        fields.get(2, [0])[0],
+        "Malformed bridge push acknowledgment message ID.",
+    )
+    delivery_status = _require_uint_wire_field(
+        fields.get(3, [0])[0],
+        "Malformed bridge push acknowledgment delivery status.",
+    )
     return _AcknowledgementMessage(
         topic=topic,
         message_id=message_id,
@@ -666,25 +732,37 @@ def _decode_server_message(message: bytes) -> _ServerMessage:
 
     connection_response = None
     if fields.get(SERVER_MESSAGE_CONNECTION_RESPONSE):
-        connection_response = _decode_connection_response(
-            bytes(fields[SERVER_MESSAGE_CONNECTION_RESPONSE][0])
+        raw_conn = _require_bytes_wire_field(
+            fields[SERVER_MESSAGE_CONNECTION_RESPONSE][0],
+            "Malformed bridge connection response field.",
         )
+        connection_response = _decode_connection_response(raw_conn)
 
     push_message = None
     if fields.get(SERVER_MESSAGE_PUSH):
-        push_message = _decode_push_message(bytes(fields[SERVER_MESSAGE_PUSH][0]))
+        raw_push = _require_bytes_wire_field(
+            fields[SERVER_MESSAGE_PUSH][0],
+            "Malformed bridge push message field.",
+        )
+        push_message = _decode_push_message(raw_push)
 
     channel_subscription_response = None
     if fields.get(SERVER_MESSAGE_CHANNEL_SUBSCRIPTION_RESPONSE):
+        raw_channel = _require_bytes_wire_field(
+            fields[SERVER_MESSAGE_CHANNEL_SUBSCRIPTION_RESPONSE][0],
+            "Malformed bridge channel subscription response field.",
+        )
         channel_subscription_response = _decode_channel_subscription_response(
-            bytes(fields[SERVER_MESSAGE_CHANNEL_SUBSCRIPTION_RESPONSE][0])
+            raw_channel
         )
 
     push_acknowledgment = None
     if fields.get(SERVER_MESSAGE_PUSH_ACK):
-        push_acknowledgment = _decode_acknowledgement_message(
-            bytes(fields[SERVER_MESSAGE_PUSH_ACK][0])
+        raw_ack = _require_bytes_wire_field(
+            fields[SERVER_MESSAGE_PUSH_ACK][0],
+            "Malformed bridge push acknowledgment field.",
         )
+        push_acknowledgment = _decode_acknowledgement_message(raw_ack)
 
     return _ServerMessage(
         connection_response=connection_response,

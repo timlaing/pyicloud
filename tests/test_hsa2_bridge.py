@@ -1525,7 +1525,10 @@ def test_trusted_device_bridge_validate_code_propagates_malformed_ack(
         user_agent="test-agent",
     )
 
-    with pytest.raises(ValueError, match="invalid literal"):
+    with pytest.raises(
+        PyiCloudTrustedDeviceVerificationException,
+        match="Trusted-device bridge verification failed",
+    ):
         bootstrapper.validate_code(
             session=session,
             auth_endpoint="https://idmsa.apple.com/appleauth/auth",
@@ -1617,3 +1620,256 @@ def test_trusted_device_bridge_validate_code_wraps_step4_prover_message1_failure
             code="050044",
         )
     assert websocket.closed is False
+
+
+def test_decode_server_message_rejects_non_bytes_wire_fields() -> None:
+    """Outer wire fields in server messages must be length-delimited bytes."""
+    with pytest.raises(
+        PyiCloudTrustedDevicePromptException,
+        match="Malformed bridge connection response field",
+    ):
+        bridge_module._decode_server_message(_encode_uint32_field(1, 10))
+
+    with pytest.raises(
+        PyiCloudTrustedDevicePromptException,
+        match="Malformed bridge push message field",
+    ):
+        bridge_module._decode_server_message(_encode_uint32_field(2, 10))
+
+    with pytest.raises(
+        PyiCloudTrustedDevicePromptException,
+        match="Malformed bridge channel subscription response field",
+    ):
+        bridge_module._decode_server_message(_encode_uint32_field(3, 10))
+
+    with pytest.raises(
+        PyiCloudTrustedDevicePromptException,
+        match="Malformed bridge push acknowledgment field",
+    ):
+        bridge_module._decode_server_message(_encode_uint32_field(7, 10))
+
+
+def test_decode_push_message_rejects_malformed_fields() -> None:
+    """Push message wire fields must have expected types and non-negative message ID."""
+    with pytest.raises(
+        PyiCloudTrustedDevicePromptException,
+        match="Malformed bridge push topic",
+    ):
+        bridge_module._decode_push_message(_encode_uint32_field(1, 10))
+
+    with pytest.raises(
+        PyiCloudTrustedDevicePromptException,
+        match="Malformed bridge push message ID",
+    ):
+        bridge_module._decode_push_message(_encode_bytes_field(2, b"-1"))
+
+    with pytest.raises(
+        PyiCloudTrustedDevicePromptException,
+        match="Malformed bridge push payload",
+    ):
+        bridge_module._decode_push_message(_encode_uint32_field(4, 10))
+
+
+def test_decode_connection_response_rejects_malformed_fields() -> None:
+    """Connection response wire fields must have expected types."""
+    with pytest.raises(
+        PyiCloudTrustedDevicePromptException,
+        match="Malformed bridge connection response push token",
+    ):
+        bridge_module._decode_connection_response(_encode_uint32_field(1, 10))
+
+    with pytest.raises(
+        PyiCloudTrustedDevicePromptException,
+        match="Malformed bridge connection response status",
+    ):
+        bridge_module._decode_connection_response(_encode_bytes_field(2, b"-1"))
+
+    with pytest.raises(
+        PyiCloudTrustedDevicePromptException,
+        match="Malformed bridge connection response timestamp",
+    ):
+        bridge_module._decode_connection_response(_encode_bytes_field(3, b"-1"))
+
+
+def test_decode_acknowledgement_message_rejects_malformed_fields() -> None:
+    """Push acknowledgment fields must have expected wire types."""
+    with pytest.raises(
+        PyiCloudTrustedDevicePromptException,
+        match="Malformed bridge push acknowledgment topic",
+    ):
+        bridge_module._decode_acknowledgement_message(_encode_uint32_field(1, 10))
+
+    with pytest.raises(
+        PyiCloudTrustedDevicePromptException,
+        match="Malformed bridge push acknowledgment message ID",
+    ):
+        bridge_module._decode_acknowledgement_message(_encode_bytes_field(2, b"-1"))
+
+    with pytest.raises(
+        PyiCloudTrustedDevicePromptException,
+        match="Malformed bridge push acknowledgment delivery status",
+    ):
+        bridge_module._decode_acknowledgement_message(_encode_bytes_field(3, b"-1"))
+
+
+def test_decode_channel_subscription_response_rejects_malformed_fields() -> None:
+    """Channel subscription response fields must have expected wire types."""
+    with pytest.raises(
+        PyiCloudTrustedDevicePromptException,
+        match="Malformed bridge channel subscription payload",
+    ):
+        bridge_module._decode_channel_subscription_response(_encode_uint32_field(1, 10))
+
+    inner_varint = _encode_uint32_field(1, 10)
+    with pytest.raises(
+        PyiCloudTrustedDevicePromptException,
+        match="Malformed bridge channel subscription app response",
+    ):
+        bridge_module._decode_channel_subscription_response(
+            _encode_bytes_field(1, inner_varint)
+        )
+
+    bad_topic_app_response = _encode_bytes_field(1, _encode_uint32_field(1, 10))
+    with pytest.raises(
+        PyiCloudTrustedDevicePromptException,
+        match="Malformed bridge channel subscription topic",
+    ):
+        bridge_module._decode_channel_subscription_response(
+            _encode_bytes_field(1, bad_topic_app_response)
+        )
+
+    with pytest.raises(
+        PyiCloudTrustedDevicePromptException,
+        match="Malformed bridge channel subscription message ID",
+    ):
+        bridge_module._decode_channel_subscription_response(
+            _encode_bytes_field(2, b"-1")
+        )
+
+    with pytest.raises(
+        PyiCloudTrustedDevicePromptException,
+        match="Malformed bridge channel subscription status",
+    ):
+        bridge_module._decode_channel_subscription_response(
+            _encode_bytes_field(3, b"-1")
+        )
+
+    with pytest.raises(
+        PyiCloudTrustedDevicePromptException,
+        match="Malformed bridge channel subscription retry interval",
+    ):
+        bridge_module._decode_channel_subscription_response(
+            _encode_bytes_field(4, b"-1")
+        )
+
+
+def test_trusted_device_bridge_bootstrap_malformed_frame_routes_to_prompt_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Malformed websocket frames during bootstrap must surface as prompt failure."""
+    websocket = _FakeWebSocket([_encode_uint32_field(1, 42)])
+    bootstrapper = TrustedDeviceBridgeBootstrapper(
+        timeout=1.0,
+        websocket_factory=lambda *_args: websocket,
+    )
+    monkeypatch.setattr(
+        bootstrapper,
+        "_generate_keypair",
+        MagicMock(return_value=(b"\x04public-key", _FakePrivateKey())),
+    )
+
+    session = MagicMock()
+    boot_context = _boot_context()
+    with pytest.raises(
+        PyiCloudTrustedDevicePromptException,
+        match="Failed to bootstrap the trusted-device bridge prompt",
+    ) as exc_info:
+        bootstrapper.start(
+            session=session,
+            auth_endpoint="https://idmsa.apple.com/appleauth/auth",
+            headers={"scnt": "test-scnt"},
+            boot_context=boot_context,
+            user_agent="test-agent",
+        )
+
+    assert isinstance(exc_info.value.__cause__, PyiCloudTrustedDevicePromptException)
+    assert "Malformed bridge connection response field" in str(exc_info.value.__cause__)
+    assert websocket.closed is True
+
+
+def test_validate_code_malformed_push_routes_to_verification_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Malformed push message during validation must surface as verification failure."""
+    topic = "com.apple.idmsauthwidget"
+    malformed_push = b"".join([
+        _encode_bytes_field(1, bytes.fromhex(_topic_hash(topic))),
+        _encode_bytes_field(2, b"-1"),
+        _encode_bytes_field(4, b"{}"),
+    ])
+    malformed_frame = _encode_bytes_field(2, malformed_push)
+
+    websocket = _FakeWebSocket([
+        _encode_connection_response(b"push-token"),
+        _encode_channel_subscription_response(topic),
+        _encode_push_message(
+            topic,
+            {
+                "sessionUUID": "bridge-session",
+                "nextStep": "2",
+                "txnid": "2300_282820214_S",
+                "salt": base64.b64encode(b"0123456789abcdef").decode("ascii"),
+                "idmsdata": "initial-idms",
+                "akdata": {"lat": 49.52},
+            },
+            2300,
+        ),
+        malformed_frame,
+    ])
+    prover = MagicMock()
+    prover.get_message1.return_value = "abcd"
+
+    bootstrapper = TrustedDeviceBridgeBootstrapper(
+        timeout=1.0,
+        websocket_factory=lambda *_args: websocket,
+        prover_factory=lambda: prover,
+    )
+    monkeypatch.setattr(
+        bootstrapper,
+        "_generate_keypair",
+        MagicMock(return_value=(b"\x04public-key", _FakePrivateKey())),
+    )
+    monkeypatch.setattr(
+        bootstrapper,
+        "_generate_session_uuid",
+        MagicMock(return_value="bridge-session"),
+    )
+    session = MagicMock()
+    session.request_raw.side_effect = [_response(200), _response(200)]
+
+    state = bootstrapper.start(
+        session=session,
+        auth_endpoint="https://idmsa.apple.com/appleauth/auth",
+        headers={"scnt": "test-scnt"},
+        boot_context=_boot_context(topic),
+        user_agent="test-agent",
+    )
+
+    with pytest.raises(
+        PyiCloudTrustedDeviceVerificationException,
+        match=(
+            "Trusted-device bridge verification failed while waiting "
+            "for the next bridge push"
+        ),
+    ) as exc_info:
+        bootstrapper.validate_code(
+            session=session,
+            auth_endpoint="https://idmsa.apple.com/appleauth/auth",
+            headers={"scnt": "test-scnt"},
+            bridge_state=state,
+            code="050044",
+        )
+
+    assert isinstance(exc_info.value.__cause__, PyiCloudTrustedDevicePromptException)
+    assert "Malformed bridge push message ID" in str(exc_info.value.__cause__)
+    assert session.request_raw.call_count == 2
