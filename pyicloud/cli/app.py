@@ -21,7 +21,9 @@ from pyicloud.cli.context import CONNECTION_FAILURE_MESSAGE, CLIAbort
 from pyicloud.diagnostics import installed_version
 from pyicloud.exceptions import (
     PyiCloudAccountLockedException,
+    PyiCloudAPIResponseException,
     PyiCloudConnectionException,
+    is_server_error,
 )
 
 app = typer.Typer(
@@ -115,6 +117,14 @@ def main() -> int:
         # retry hint instead of a traceback.
         typer.echo(CONNECTION_FAILURE_MESSAGE, err=True)
         return 1
+    except PyiCloudAPIResponseException as err:
+        # A classified Apple 5xx that escaped the wrappers is still an outage.
+        if is_server_error(err):
+            typer.echo(
+                f"iCloud is unavailable right now: {err}. Try again later.", err=True
+            )
+            return 1
+        raise
     except CLIAbort as err:
         typer.echo(str(err), err=True)
         return 1

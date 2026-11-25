@@ -49,6 +49,15 @@ class PyiCloudAPIResponseException(PyiCloudException):
         super().__init__(message)
 
 
+def is_server_error(error: PyiCloudAPIResponseException) -> bool:
+    """Whether an API error carries an Apple HTTP 5xx response."""
+    response = getattr(error, "response", None)
+    status = getattr(response, "status_code", None)
+    if status is None:
+        status = error.code
+    return isinstance(status, int) and 500 <= status < 600
+
+
 class PyiCloudServiceNotActivatedException(PyiCloudAPIResponseException):
     """iCloud service not activated exception."""
 
@@ -197,6 +206,17 @@ class PyiCloudTrustedDevicePromptException(PyiCloudAPIResponseException):
 
 class PyiCloudTrustedDeviceVerificationException(PyiCloudAPIResponseException):
     """Trusted-device bridge verification exception."""
+
+
+class PyiCloudTrustedDeviceChallengeRequiredException(
+    PyiCloudTrustedDeviceVerificationException
+):
+    """The active 2FA challenge is unusable and a replacement must be requested.
+
+    Raised when a trusted-device bridge challenge has been consumed or cannot be
+    verified. Retrying without a fresh challenge would silently fall back to the
+    legacy verifier, so callers should request and deliver a new code first.
+    """
 
 
 class PyiCloudSecurityKeyException(PyiCloudException):

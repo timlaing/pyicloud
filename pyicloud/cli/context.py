@@ -27,8 +27,10 @@ from pyicloud.exceptions import (
     PyiCloudFailedLoginException,
     PyiCloudNoTrustedNumberAvailable,
     PyiCloudServiceUnavailable,
+    PyiCloudTrustedDeviceChallengeRequiredException,
     PyiCloudTrustedDevicePromptException,
     PyiCloudTrustedDeviceVerificationException,
+    is_server_error,
 )
 from pyicloud.services.drive import DriveNode, DriveService
 from pyicloud.services.findmyiphone import AppleDevice
@@ -361,6 +363,19 @@ class CLIState:
             raise CLIAbort("Invalid device selection.")
         return idx
 
+    def _announce_2fa_delivery(self, api: PyiCloudService) -> None:
+        """Report where the just-requested 2FA code was delivered."""
+
+        notice = getattr(api, "two_factor_delivery_notice", None)
+        if notice:
+            self.console.print(notice)
+
+        delivery_method = getattr(api, "two_factor_delivery_method", "unknown")
+        if delivery_method == "trusted_device":
+            self.console.print("Requested a 2FA prompt on your trusted Apple devices.")
+        elif delivery_method == "sms":
+            self.console.print("Requested a 2FA code by SMS.")
+
     def _handle_2fa(self, api: PyiCloudService) -> None:  # noqa: S3776
         """Complete Apple's HSA2 flow using a security key or code-based challenge."""
         fido2_devices = list(getattr(api, "fido2_devices", []) or [])
@@ -393,17 +408,7 @@ class CLIState:
                         "one and retry."
                     )
 
-                notice = getattr(api, "two_factor_delivery_notice", None)
-                if notice:
-                    self.console.print(notice)
-
-                delivery_method = getattr(api, "two_factor_delivery_method", "unknown")
-                if delivery_method == "trusted_device":
-                    self.console.print(
-                        "Requested a 2FA prompt on your trusted Apple devices."
-                    )
-                elif delivery_method == "sms":
-                    self.console.print("Requested a 2FA code by SMS.")
+                self._announce_2fa_delivery(api)
             except PyiCloudNoTrustedNumberAvailable as exc:
                 raise CLIAbort(
                     "Two-factor authentication requires a trusted phone number, "
@@ -428,6 +433,21 @@ class CLIState:
                 code = typer.prompt("Enter 2FA code")
                 try:
                     is_valid = api.validate_2fa_code(code)
+                except PyiCloudTrustedDeviceChallengeRequiredException:
+                    if attempt == max_attempts - 1:
+                        raise CLIAbort("Failed to verify the 2FA code.") from None
+                    try:
+                        api.request_2fa_code()
+                    except PyiCloudTrustedDevicePromptException as request_exc:
+                        raise CLIAbort(
+                            "Failed to request the 2FA trusted-device prompt."
+                        ) from request_exc
+                    self.console.print(
+                        "The previous 2FA challenge is no longer valid; "
+                        "a new code has been requested."
+                    )
+                    self._announce_2fa_delivery(api)
+                    continue
                 except PyiCloudTrustedDeviceVerificationException as exc:
                     raise CLIAbort(
                         "Failed to verify the 2FA trusted-device code."
@@ -514,6 +534,14 @@ class CLIState:
             raise CLIAbort(
                 f"Could not reach iCloud: {err}. Check your connection and try again."
             ) from err
+        except PyiCloudAPIResponseException as err:
+            # An Apple 5xx says nothing about the password. Keep the stored
+            # keyring entry and give a retry hint instead of blaming credentials.
+            if is_server_error(err):
+                raise CLIAbort(
+                    f"iCloud is unavailable right now: {err}. Try again later."
+                ) from err
+            raise CLIAbort(f"Could not complete login for {username}: {err}") from err
         except PyiCloudFailedLoginException as err:
             # Deliberately unlike get_login_api: a failed paused login is not
             # proof the stored password is stale, so the keyring is left alone.
@@ -570,6 +598,13 @@ class CLIState:
             raise CLIAbort(
                 f"Could not reach iCloud: {err}. Check your connection and try again."
             ) from err
+        except PyiCloudAPIResponseException as err:
+            # Keep the keyring password: an Apple outage is not a stale secret.
+            if is_server_error(err):
+                raise CLIAbort(
+                    f"iCloud is unavailable right now: {err}. Try again later."
+                ) from err
+            raise CLIAbort(f"Could not complete login for {username}: {err}") from err
         except PyiCloudFailedLoginException as err:
             if password_source == "keyring" and utils.password_exists_in_keyring(
                 username

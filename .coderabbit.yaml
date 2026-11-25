@@ -6,7 +6,7 @@ reviews:
     description_keyword: ""
   auto_approvals:
     enabled: true
-    allow_author_approval: false
+    allow_author_approval: true
     # Require a reviewed current commit without excluding any risk category.
     max_merge_risk: critical
 inheritance: true
