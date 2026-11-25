@@ -125,6 +125,21 @@ test("failed requests can retry while the number of requests remains bounded", a
   assert.equal(f.calls.filter(([name]) => name === "comment").length, 2);
 });
 
+test("fork PR heads are resolved when the commit is absent from the base repo", async () => {
+  const f = fixture();
+  f.responses.associated = [];
+  f.responses.previous = [structuredClone(pr)];
+  f.responses.reviews = [
+    {
+      user: { login: "coderabbitai[bot]" },
+      commit_id: sha,
+      state: "APPROVED",
+    },
+  ];
+  await review(f);
+  assert.equal(f.calls.filter(([name]) => name === "comment").length, 0);
+});
+
 test("a changed PR head stops the review wait", async () => {
   const f = fixture();
   f.responses.current.head.sha = "b".repeat(40);

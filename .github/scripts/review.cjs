@@ -8,10 +8,25 @@ module.exports = async ({
   const { owner, repo } = context.repo;
   const run = context.payload.workflow_run;
   const sha = run.head_sha;
-  const associated = await github.paginate(
+  let associated = await github.paginate(
     github.rest.repos.listPullRequestsAssociatedWithCommit,
     { owner, repo, commit_sha: sha, per_page: 100 },
   );
+  if (run.event === "pull_request" && !associated.some((pr) => pr.head?.sha === sha)) {
+    // Fork commits are not in the base repository, so the associated-commit
+    // API cannot resolve them. Match the open PR head directly instead.
+    const open = await github.paginate(github.rest.pulls.list, {
+      owner,
+      repo,
+      state: "open",
+      base: "main",
+      per_page: 100,
+    });
+    associated = [
+      ...associated,
+      ...open.filter((pr) => pr.head?.sha === sha && !associated.some((a) => a.number === pr.number)),
+    ];
+  }
   const candidates = associated.filter(
     (pr) =>
       pr.base.repo.full_name === `${owner}/${repo}` &&
