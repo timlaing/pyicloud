@@ -1779,6 +1779,7 @@ def test_trusted_device_bridge_bootstrap_malformed_frame_routes_to_prompt_failur
     )
 
     session = MagicMock()
+    boot_context = _boot_context()
     with pytest.raises(
         PyiCloudTrustedDevicePromptException,
         match="Failed to bootstrap the trusted-device bridge prompt",
@@ -1787,7 +1788,7 @@ def test_trusted_device_bridge_bootstrap_malformed_frame_routes_to_prompt_failur
             session=session,
             auth_endpoint="https://idmsa.apple.com/appleauth/auth",
             headers={"scnt": "test-scnt"},
-            boot_context=_boot_context(),
+            boot_context=boot_context,
             user_agent="test-agent",
         )
 
