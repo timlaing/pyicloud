@@ -20,6 +20,7 @@ from pyicloud import PyiCloudService, utils
 from pyicloud.base import resolve_cookie_directory
 from pyicloud.const import FIND_MY_APP_KEY
 from pyicloud.exceptions import (
+    PyiCloud2FARequiredException,
     PyiCloudAccountLockedException,
     PyiCloudAPIResponseException,
     PyiCloudAuthRequiredException,
@@ -376,6 +377,43 @@ class CLIState:
         elif delivery_method == "sms":
             self.console.print("Requested a 2FA code by SMS.")
 
+    def _request_replacement_2fa_code(self, api: PyiCloudService) -> None:
+        """Request a fresh 2FA code following a spent challenge."""
+
+        try:
+            has_code = api.request_2fa_code()
+            if not has_code:
+                raise CLIAbort(
+                    "Failed to request a replacement 2FA code; no code is available."
+                )
+        except PyiCloudAccountLockedException as exc:
+            raise CLIAbort(f"{exc}. Unlock it before trying again.") from exc
+        except PyiCloudConnectionException as exc:
+            raise CLIAbort(
+                f"Could not reach iCloud to request a new 2FA code: {exc}. "
+                "Check your connection and try again."
+            ) from exc
+        except PyiCloud2FARequiredException as exc:
+            raise CLIAbort(
+                f"Two-factor authentication session expired: {exc}. "
+                "Run `icloud auth login` again."
+            ) from exc
+        except PyiCloudTrustedDevicePromptException as exc:
+            raise CLIAbort("Failed to request the 2FA trusted-device prompt.") from exc
+        except PyiCloudAPIResponseException as exc:
+            raise CLIAbort(f"Failed to request a replacement 2FA code: {exc}.") from exc
+        except OSError as exc:
+            raise CLIAbort(
+                f"Failed to access the session directory ({exc}). "
+                "Check permissions and try again."
+            ) from exc
+
+        self.console.print(
+            "The previous 2FA challenge is no longer valid; "
+            "a new code has been requested."
+        )
+        self._announce_2fa_delivery(api)
+
     def _handle_2fa(self, api: PyiCloudService) -> None:  # noqa: S3776
         """Complete Apple's HSA2 flow using a security key or code-based challenge."""
         fido2_devices = list(getattr(api, "fido2_devices", []) or [])
@@ -429,24 +467,30 @@ class CLIState:
                 )
                 api.use_existing_trusted_device_code()
             max_attempts = 3
+            prompt_text = "Enter 2FA code"
             for attempt in range(max_attempts):
-                code = typer.prompt("Enter 2FA code")
+                code = typer.prompt(prompt_text)
                 try:
                     is_valid = api.validate_2fa_code(code)
                 except PyiCloudTrustedDeviceChallengeRequiredException:
                     if attempt == max_attempts - 1:
                         raise CLIAbort("Failed to verify the 2FA code.") from None
-                    try:
-                        api.request_2fa_code()
-                    except PyiCloudTrustedDevicePromptException as request_exc:
+                    self._request_replacement_2fa_code(api)
+                    prompt_text = "Enter new 2FA code"
+                    continue
+                except PyiCloudAccountLockedException as exc:
+                    raise CLIAbort(f"{exc}. Unlock it before trying again.") from exc
+                except PyiCloudConnectionException as exc:
+                    if attempt == max_attempts - 1:
                         raise CLIAbort(
-                            "Failed to request the 2FA trusted-device prompt."
-                        ) from request_exc
+                            f"Could not reach iCloud to verify the 2FA code: {exc}. "
+                            "Check your connection and try again."
+                        ) from exc
                     self.console.print(
-                        "The previous 2FA challenge is no longer valid; "
-                        "a new code has been requested."
+                        f"Could not reach iCloud to verify the 2FA code: {exc}. "
+                        "Check your connection and try again."
                     )
-                    self._announce_2fa_delivery(api)
+                    prompt_text = "Re-enter the same 2FA code"
                     continue
                 except PyiCloudTrustedDeviceVerificationException as exc:
                     raise CLIAbort(
@@ -460,6 +504,7 @@ class CLIState:
                 self.console.print(
                     f"Invalid 2FA code. {remaining_attempts} attempt(s) remaining."
                 )
+                prompt_text = "Re-enter 2FA code"
         if not api.is_trusted_session:
             api.trust_session()
 

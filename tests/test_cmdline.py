@@ -25,6 +25,7 @@ from pyicloud.const import FIND_MY_APP_KEY
 from pyicloud.diagnostics import PROBED_SERVICES
 from pyicloud.endpoints import WEBSERVICES
 from pyicloud.exceptions import (
+    PyiCloud2FARequiredException,
     PyiCloudAccountLockedException,
     PyiCloudAPIResponseException,
     PyiCloudConnectionException,
@@ -3932,6 +3933,256 @@ def test_spent_challenge_prompt_failure_aborts() -> None:
     assert "Failed to request the 2FA trusted-device prompt." in str(result.exception)
     assert fake_api.validate_2fa_code.call_args_list == [call("111111")]
     assert fake_api.request_2fa_code.call_count == 2
+
+
+def test_spent_challenge_replacement_account_locked() -> None:
+    """An account locked exception during replacement aborts with unlock guidance."""
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.two_factor_delivery_method = "trusted_device"
+    fake_api.request_2fa_code.side_effect = [
+        True,
+        PyiCloudAccountLockedException("-20209", MagicMock()),
+    ]
+    fake_api.validate_2fa_code.side_effect = (
+        context_module.PyiCloudTrustedDeviceChallengeRequiredException("spent")
+    )
+
+    with patch.object(context_module.typer, "prompt", side_effect=["111111"]):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert "Unlock it before trying again." in str(result.exception)
+    assert fake_api.validate_2fa_code.call_args_list == [call("111111")]
+    assert fake_api.request_2fa_code.call_count == 2
+
+
+def test_spent_challenge_replacement_connection_failure() -> None:
+    """A connection failure during replacement aborts with connection guidance."""
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.two_factor_delivery_method = "trusted_device"
+    fake_api.request_2fa_code.side_effect = [
+        True,
+        PyiCloudConnectionException("Connection refused"),
+    ]
+    fake_api.validate_2fa_code.side_effect = (
+        context_module.PyiCloudTrustedDeviceChallengeRequiredException("spent")
+    )
+
+    with patch.object(context_module.typer, "prompt", side_effect=["111111"]):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert (
+        "Could not reach iCloud to request a new 2FA code: Connection refused. Check your connection and try again."
+        in str(result.exception)
+    )
+    assert fake_api.validate_2fa_code.call_args_list == [call("111111")]
+    assert fake_api.request_2fa_code.call_count == 2
+
+
+def test_spent_challenge_replacement_session_expired() -> None:
+    """An expired 2FA session during replacement aborts with re-login guidance."""
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.two_factor_delivery_method = "trusted_device"
+    fake_api.request_2fa_code.side_effect = [
+        True,
+        PyiCloud2FARequiredException("Session expired", MagicMock()),
+    ]
+    fake_api.validate_2fa_code.side_effect = (
+        context_module.PyiCloudTrustedDeviceChallengeRequiredException("spent")
+    )
+
+    with patch.object(context_module.typer, "prompt", side_effect=["111111"]):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert "Two-factor authentication session expired:" in str(result.exception)
+    assert "Run `icloud auth login` again." in str(result.exception)
+    assert fake_api.validate_2fa_code.call_args_list == [call("111111")]
+    assert fake_api.request_2fa_code.call_count == 2
+
+
+def test_spent_challenge_replacement_api_response_failure() -> None:
+    """An API response failure during replacement aborts with a descriptive message."""
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.two_factor_delivery_method = "trusted_device"
+    fake_api.request_2fa_code.side_effect = [
+        True,
+        PyiCloudAPIResponseException("Bad gateway", code=502),
+    ]
+    fake_api.validate_2fa_code.side_effect = (
+        context_module.PyiCloudTrustedDeviceChallengeRequiredException("spent")
+    )
+
+    with patch.object(context_module.typer, "prompt", side_effect=["111111"]):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert "Failed to request a replacement 2FA code: Bad gateway (502)." in str(
+        result.exception
+    )
+    assert fake_api.validate_2fa_code.call_args_list == [call("111111")]
+    assert fake_api.request_2fa_code.call_count == 2
+
+
+def test_spent_challenge_replacement_os_error() -> None:
+    """An OSError during replacement reports session directory permission guidance."""
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.two_factor_delivery_method = "trusted_device"
+    fake_api.request_2fa_code.side_effect = [
+        True,
+        OSError("Permission denied"),
+    ]
+    fake_api.validate_2fa_code.side_effect = (
+        context_module.PyiCloudTrustedDeviceChallengeRequiredException("spent")
+    )
+
+    with patch.object(context_module.typer, "prompt", side_effect=["111111"]):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert (
+        "Failed to access the session directory (Permission denied). Check permissions and try again."
+        in str(result.exception)
+    )
+    assert fake_api.validate_2fa_code.call_args_list == [call("111111")]
+    assert fake_api.request_2fa_code.call_count == 2
+
+
+def test_spent_challenge_replacement_no_code_available() -> None:
+    """When replacement request returns False, abort with clear message."""
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.two_factor_delivery_method = "trusted_device"
+    fake_api.request_2fa_code.side_effect = [True, False]
+    fake_api.validate_2fa_code.side_effect = (
+        context_module.PyiCloudTrustedDeviceChallengeRequiredException("spent")
+    )
+
+    with patch.object(context_module.typer, "prompt", side_effect=["111111"]):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert "Failed to request a replacement 2FA code; no code is available." in str(
+        result.exception
+    )
+    assert fake_api.validate_2fa_code.call_args_list == [call("111111")]
+    assert fake_api.request_2fa_code.call_count == 2
+
+
+def test_spent_challenge_prompts_new_code() -> None:
+    """After a spent challenge and replacement, prompt asks for a new 2FA code."""
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.two_factor_delivery_method = "trusted_device"
+    fake_api.request_2fa_code.return_value = True
+    fake_api.validate_2fa_code.side_effect = [
+        context_module.PyiCloudTrustedDeviceChallengeRequiredException("spent"),
+        True,
+    ]
+
+    with patch.object(
+        context_module.typer, "prompt", side_effect=["111111", "222222"]
+    ) as mock_prompt:
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code == 0
+    assert mock_prompt.call_args_list == [
+        call("Enter 2FA code"),
+        call("Enter new 2FA code"),
+    ]
+    assert fake_api.validate_2fa_code.call_args_list == [
+        call("111111"),
+        call("222222"),
+    ]
+
+
+def test_validate_2fa_retryable_connection_failure_prompts_same_code() -> None:
+    """A pre-send connection failure prompts the user to re-enter the same code."""
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.two_factor_delivery_method = "trusted_device"
+    fake_api.request_2fa_code.return_value = True
+    fake_api.validate_2fa_code.side_effect = [
+        PyiCloudConnectionException("Network timeout"),
+        True,
+    ]
+
+    with patch.object(
+        context_module.typer, "prompt", side_effect=["111111", "111111"]
+    ) as mock_prompt:
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code == 0
+    assert (
+        "Could not reach iCloud to verify the 2FA code: Network timeout. Check your connection and try again."
+        in _unwrapped(result)
+    )
+    assert mock_prompt.call_args_list == [
+        call("Enter 2FA code"),
+        call("Re-enter the same 2FA code"),
+    ]
+    assert fake_api.validate_2fa_code.call_args_list == [
+        call("111111"),
+        call("111111"),
+    ]
+
+
+def test_validate_2fa_connection_failure_exhausts_attempts() -> None:
+    """Persistent connection failures during verification exhaust attempts."""
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.two_factor_delivery_method = "trusted_device"
+    fake_api.request_2fa_code.return_value = True
+    fake_api.validate_2fa_code.side_effect = PyiCloudConnectionException(
+        "Network timeout"
+    )
+
+    with patch.object(
+        context_module.typer, "prompt", side_effect=["111111", "111111", "111111"]
+    ) as mock_prompt:
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert (
+        "Could not reach iCloud to verify the 2FA code: Network timeout. Check your connection and try again."
+        in str(result.exception)
+    )
+    assert mock_prompt.call_args_list == [
+        call("Enter 2FA code"),
+        call("Re-enter the same 2FA code"),
+        call("Re-enter the same 2FA code"),
+    ]
+
+
+def test_legacy_w_rejected_code_prompts_reenter() -> None:
+    """A rejected code on the legacy route prompts the user to re-enter 2FA code."""
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.two_factor_delivery_method = "trusted_device"
+    fake_api.request_2fa_code.return_value = True
+    fake_api.validate_2fa_code.side_effect = [False, True]
+
+    with patch.object(
+        context_module.typer, "prompt", side_effect=["111111", "222222"]
+    ) as mock_prompt:
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code == 0
+    assert "Invalid 2FA code. 2 attempt(s) remaining." in result.stdout
+    assert mock_prompt.call_args_list == [
+        call("Enter 2FA code"),
+        call("Re-enter 2FA code"),
+    ]
+    assert fake_api.validate_2fa_code.call_args_list == [
+        call("111111"),
+        call("222222"),
+    ]
 
 
 def test_sms_2fa_aborts_after_three_invalid_codes() -> None:
