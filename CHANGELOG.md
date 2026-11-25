@@ -30,6 +30,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Harden trusted-device bridge websocket frame decoding: validate wire field types before conversion, reject length-delimited push message IDs, and route malformed frames to phase-specific prompt or verification failures (#556).
 - Stop 2FA bridge retries from silently falling back to the legacy verifier: a bridge challenge is single-use, so a rejected code, a consumed challenge, or an ambiguous transport failure retires it and raises `PyiCloudTrustedDeviceChallengeRequiredException`, telling callers to request a fresh code. Cancellation and unexpected verification failures retire the challenge too, then propagate their original exception (`KeyboardInterrupt` on cancellation, `ValueError` for a malformed push frame).
 - Align the minimum Pydantic pin with the declared 2.14.1 runtime lower bound so the minimum-runtime installation check passes again.
 - Keep Apple HTTP 5xx responses from `/validate` and `/accountLogin` as service errors instead of treating them as an invalid cached session or rejected credentials, so a temporary outage no longer triggers a full reauthentication cycle. The CLI reports these as outages and keeps stored keyring passwords intact. File an issue if the underlying session rejection persists.

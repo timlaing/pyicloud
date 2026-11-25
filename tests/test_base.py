@@ -1206,7 +1206,10 @@ def test_unexpected_verification_error_retires_challenge(
     pyicloud_service._two_factor_code_requested = True
     pyicloud_service._session = session
 
-    with pytest.raises(ValueError, match="invalid literal"):
+    with pytest.raises(
+        PyiCloudTrustedDeviceVerificationException,
+        match="Trusted-device bridge verification failed",
+    ):
         pyicloud_service.validate_2fa_code("050044")
 
     # The step-2 POST already went out before the frame failed to decode.
