@@ -418,7 +418,7 @@ def test_decode_connection_response_variants() -> None:
 
 
 def test_decode_channel_subscription_variants() -> None:
-    """Channel responses without payloads or with non-bytes topics are skipped."""
+    """Channel responses without payloads are skipped; malformed topics fail."""
 
     no_payload = bridge._encode_uint32_field(2, 1)
     response = bridge._decode_channel_subscription_response(no_payload)
@@ -427,8 +427,11 @@ def test_decode_channel_subscription_variants() -> None:
     app_response = bridge._encode_uint32_field(1, 5)
     payload = bridge._encode_bytes_field(1, app_response)
     body = bridge._encode_bytes_field(1, payload) + bridge._encode_uint32_field(2, 1)
-    response = bridge._decode_channel_subscription_response(body)
-    assert not response.topics
+    with pytest.raises(
+        PyiCloudTrustedDevicePromptException,
+        match="Malformed bridge channel subscription topic",
+    ):
+        bridge._decode_channel_subscription_response(body)
 
 
 def test_decode_server_message_includes_push_ack() -> None:

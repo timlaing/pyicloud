@@ -1795,7 +1795,7 @@ def test_trusted_device_bridge_bootstrap_malformed_frame_routes_to_prompt_failur
     assert websocket.closed is True
 
 
-def test_trusted_device_bridge_validate_code_malformed_push_routes_to_verification_failure(
+def test_validate_code_malformed_push_routes_to_verification_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Malformed push message during validation must surface as verification failure."""
@@ -1855,7 +1855,10 @@ def test_trusted_device_bridge_validate_code_malformed_push_routes_to_verificati
 
     with pytest.raises(
         PyiCloudTrustedDeviceVerificationException,
-        match="Trusted-device bridge verification failed while waiting for the next bridge push",
+        match=(
+            "Trusted-device bridge verification failed while waiting "
+            "for the next bridge push"
+        ),
     ) as exc_info:
         bootstrapper.validate_code(
             session=session,
