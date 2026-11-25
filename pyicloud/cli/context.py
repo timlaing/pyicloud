@@ -30,6 +30,7 @@ from pyicloud.exceptions import (
     PyiCloudTrustedDeviceChallengeRequiredException,
     PyiCloudTrustedDevicePromptException,
     PyiCloudTrustedDeviceVerificationException,
+    is_server_error,
 )
 from pyicloud.services.drive import DriveNode, DriveService
 from pyicloud.services.findmyiphone import AppleDevice
@@ -533,6 +534,14 @@ class CLIState:
             raise CLIAbort(
                 f"Could not reach iCloud: {err}. Check your connection and try again."
             ) from err
+        except PyiCloudAPIResponseException as err:
+            # An Apple 5xx says nothing about the password. Keep the stored
+            # keyring entry and give a retry hint instead of blaming credentials.
+            if is_server_error(err):
+                raise CLIAbort(
+                    f"iCloud is unavailable right now: {err}. Try again later."
+                ) from err
+            raise CLIAbort(f"Could not complete login for {username}: {err}") from err
         except PyiCloudFailedLoginException as err:
             # Deliberately unlike get_login_api: a failed paused login is not
             # proof the stored password is stale, so the keyring is left alone.
@@ -589,6 +598,13 @@ class CLIState:
             raise CLIAbort(
                 f"Could not reach iCloud: {err}. Check your connection and try again."
             ) from err
+        except PyiCloudAPIResponseException as err:
+            # Keep the keyring password: an Apple outage is not a stale secret.
+            if is_server_error(err):
+                raise CLIAbort(
+                    f"iCloud is unavailable right now: {err}. Try again later."
+                ) from err
+            raise CLIAbort(f"Could not complete login for {username}: {err}") from err
         except PyiCloudFailedLoginException as err:
             if password_source == "keyring" and utils.password_exists_in_keyring(
                 username

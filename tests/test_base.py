@@ -286,6 +286,116 @@ def test_cached_session_reauth_is_treated_as_cache_miss(
         assert pyicloud_service._try_reuse_cached_session(False, False) is False
 
 
+def _auth_5xx(status: int = 503) -> PyiCloudAPIResponseException:
+    """Build an Apple 5xx API error with its HTTP response attached."""
+    response = MagicMock(spec=Response)
+    response.status_code = status
+    response.text = f"server error {status}"
+    return PyiCloudAPIResponseException("upstream error", status, response)
+
+
+def test_cached_session_server_error_is_not_a_cache_miss(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """A 5xx from /validate must not trigger a full reauthentication storm."""
+    pyicloud_service.session._data = {"session_token": "cached-token"}
+    error = _auth_5xx()
+
+    with (
+        patch.object(pyicloud_service, "_validate_token", side_effect=error),
+        pytest.raises(PyiCloudAPIResponseException) as excinfo,
+    ):
+        pyicloud_service._try_reuse_cached_session(False, False)
+    assert excinfo.value.code == 503
+    assert excinfo.value.__cause__ is error
+
+
+@pytest.mark.parametrize("status", [500, 502, 503])
+def test_account_login_server_error_is_not_failed_token(
+    pyicloud_service: PyiCloudService, status: int
+) -> None:
+    """An Apple outage on /accountLogin is not an invalid cached token."""
+    pyicloud_service.session._data = {"session_token": "cached-token"}
+    error = _auth_5xx(status)
+
+    with (
+        patch.object(pyicloud_service.session, "post", side_effect=error),
+        pytest.raises(PyiCloudAPIResponseException) as excinfo,
+    ):
+        pyicloud_service._authenticate_with_token()
+    assert not isinstance(excinfo.value, PyiCloudFailedLoginException)
+    assert excinfo.value.code == status
+    assert excinfo.value.__cause__ is error
+
+
+@pytest.mark.parametrize("status", [500, 502, 503])
+def test_service_login_server_error_is_not_bad_credentials(
+    pyicloud_service: PyiCloudService, status: int
+) -> None:
+    """An Apple outage on service login is not a rejected password."""
+    pyicloud_service._password_raw = "password"
+    error = _auth_5xx(status)
+
+    with (
+        patch.object(pyicloud_service.session, "post", side_effect=error),
+        pytest.raises(PyiCloudAPIResponseException) as excinfo,
+    ):
+        pyicloud_service._authenticate_with_credentials_service("photos")
+    assert not isinstance(excinfo.value, PyiCloudFailedLoginException)
+    assert excinfo.value.code == status
+    assert excinfo.value.__cause__ is error
+
+
+def test_account_login_400_remains_failed_token(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """A 400 on /accountLogin is still a rejected token, not an outage."""
+    pyicloud_service.session._data = {"session_token": "cached-token"}
+    response = MagicMock(spec=Response)
+    response.status_code = 400
+    response.text = "bad token"
+    error = PyiCloudAPIResponseException("bad request", 400, response)
+
+    with (
+        patch.object(pyicloud_service.session, "post", side_effect=error),
+        pytest.raises(PyiCloudFailedLoginException) as excinfo,
+    ):
+        pyicloud_service._authenticate_with_token()
+    assert excinfo.value.__cause__ is error
+
+
+def test_paused_token_login_propagates_server_error(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """A 5xx during a paused token login must not force the MFA flow."""
+    pyicloud_service.session._data = {"session_token": "cached-token"}
+    error = _auth_5xx(503)
+
+    with (
+        patch.object(pyicloud_service, "_authenticate_with_token", side_effect=error),
+        pytest.raises(PyiCloudAPIResponseException) as excinfo,
+    ):
+        pyicloud_service._login_with_paused_token()
+    assert excinfo.value.code == 503
+    assert excinfo.value.__cause__ is error
+
+
+def test_trust_session_propagates_server_error(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """A 5xx while trusting a session must not be reported as trust refusal."""
+    error = _auth_5xx(502)
+
+    with (
+        patch.object(pyicloud_service.session, "get", return_value=MagicMock()),
+        patch.object(pyicloud_service, "_authenticate_with_token", side_effect=error),
+        pytest.raises(PyiCloudAPIResponseException) as excinfo,
+    ):
+        pyicloud_service.trust_session()
+    assert excinfo.value.code == 502
+    assert excinfo.value.__cause__ is error
+
+
 def test_get_auth_status_without_session_token(
     pyicloud_service: PyiCloudService,
 ) -> None:
