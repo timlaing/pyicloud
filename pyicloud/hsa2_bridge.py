@@ -1412,8 +1412,8 @@ class TrustedDeviceBridgeBootstrapper:
                 "Trusted-device bridge verification failed due to a "
                 "websocket transport error."
             ) from exc
-        finally:
-            self.close(bridge_state)
+        # Transport cleanup belongs to the challenge lifecycle in the caller:
+        # a retryable failure must leave the bridge usable.
 
     def _wait_for_push_token(self, websocket: _WebSocketLike) -> bytes:
         """Wait for the bridge connection response that carries the push token."""
