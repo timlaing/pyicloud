@@ -675,11 +675,13 @@ def _decode_channel_subscription_response(
                 "Malformed bridge channel subscription app response.",
             )
             app_response_fields = _decode_fields(raw_app_response)
-            topic_value = app_response_fields.get(1, [b""])[0]
-            if isinstance(topic_value, (bytes, bytearray)):
-                topic_name = bytes(topic_value).decode("utf-8", "ignore")
-                if topic_name:
-                    topics.append(topic_name)
+            topic_value = _require_bytes_wire_field(
+                app_response_fields.get(1, [b""])[0],
+                "Malformed bridge channel subscription topic.",
+            )
+            topic_name = topic_value.decode("utf-8", "ignore")
+            if topic_name:
+                topics.append(topic_name)
 
     message_id = _require_uint_wire_field(
         fields.get(2, [0])[0],

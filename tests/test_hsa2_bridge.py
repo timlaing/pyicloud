@@ -1729,6 +1729,15 @@ def test_decode_channel_subscription_response_rejects_malformed_fields() -> None
             _encode_bytes_field(1, inner_varint)
         )
 
+    bad_topic_app_response = _encode_bytes_field(1, _encode_uint32_field(1, 10))
+    with pytest.raises(
+        PyiCloudTrustedDevicePromptException,
+        match="Malformed bridge channel subscription topic",
+    ):
+        bridge_module._decode_channel_subscription_response(
+            _encode_bytes_field(1, bad_topic_app_response)
+        )
+
     with pytest.raises(
         PyiCloudTrustedDevicePromptException,
         match="Malformed bridge channel subscription message ID",
