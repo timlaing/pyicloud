@@ -41,7 +41,11 @@ from pyicloud.exceptions import (
     PyiCloudTrustedDevicePromptException,
     PyiCloudTrustedDeviceVerificationException,
 )
-from pyicloud.hsa2_bridge import TrustedDeviceBridgeBootstrapper, _hex_to_b64
+from pyicloud.hsa2_bridge import (
+    TrustedDeviceBridgeBootstrapper,
+    TrustedDeviceBridgeState,
+    _hex_to_b64,
+)
 from pyicloud.services.calendar import CalendarService
 from pyicloud.services.contacts import ContactsService
 from pyicloud.services.hidemyemail import HideMyEmailService
@@ -1299,6 +1303,129 @@ def test_interrupt_retires_bridge_challenge(
     assert pyicloud_service._trusted_device_bridge_state is None
     assert pyicloud_service._two_factor_code_requested is False
     bridge.close.assert_called_once_with(state)
+
+
+def test_interrupt_does_not_clobber_concurrent_replacement_bridge(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cancellation must not clobber a concurrently installed replacement."""
+    state, bridge, _ = _bridge_state_fixture(pyicloud_service, monkeypatch)
+    replacement_state = MagicMock(spec=TrustedDeviceBridgeState)
+
+    def simulate_interrupt(*_args: Any, **_kwargs: Any) -> Any:
+        pyicloud_service._trusted_device_bridge_state = replacement_state
+        pyicloud_service._two_factor_code_requested = True
+        raise KeyboardInterrupt
+
+    bridge.validate_code.side_effect = simulate_interrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        pyicloud_service.validate_2fa_code("123456")
+
+    bridge.close.assert_called_once_with(state)
+    assert pyicloud_service._trusted_device_bridge_state is replacement_state
+    assert pyicloud_service._two_factor_code_requested is True
+
+
+def test_request_2fa_code_reserves_in_flight_flag_before_start(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Reserve the in-flight flag before start() to block overlap."""
+
+    pyicloud_service._auth_data = {
+        "authInitialRoute": "auth/bridge/step",
+        "hasTrustedDevices": True,
+        "bridgeInitiateData": {
+            "apnsTopic": "com.apple.idmsauthwidget",
+            "apnsEnvironment": "prod",
+            "webSocketUrl": "websocket.push.apple.com",
+        },
+    }
+    bridge = MagicMock()
+    in_flight_during_start: list[bool] = []
+
+    def fake_start(*_args: Any, **_kwargs: Any) -> Any:
+        in_flight_during_start.append(pyicloud_service._two_factor_code_requested)
+        return MagicMock(spec=TrustedDeviceBridgeState)
+
+    bridge.start.side_effect = fake_start
+    pyicloud_service._trusted_device_bridge = bridge
+    pyicloud_service._session = MagicMock()
+    pyicloud_service.session.headers = {"User-Agent": "test-agent"}
+    cast(Any, pyicloud_service.session).data = {
+        "scnt": "test_scnt",
+        "session_id": "test_session_id",
+    }
+
+    assert pyicloud_service.request_2fa_code() is True
+    assert in_flight_during_start == [True]
+    assert pyicloud_service._two_factor_code_requested is True
+
+
+def test_request_2fa_code_releases_in_flight_flag_on_start_failure(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Release the in-flight flag when start() raises."""
+
+    pyicloud_service._auth_data = {
+        "authInitialRoute": "auth/bridge/step",
+        "hasTrustedDevices": True,
+        "bridgeInitiateData": {
+            "apnsTopic": "com.apple.idmsauthwidget",
+            "apnsEnvironment": "prod",
+            "webSocketUrl": "websocket.push.apple.com",
+        },
+    }
+    bridge = MagicMock()
+    bridge.start.side_effect = RuntimeError("unexpected start crash")
+    pyicloud_service._trusted_device_bridge = bridge
+    pyicloud_service._session = MagicMock()
+    pyicloud_service.session.headers = {"User-Agent": "test-agent"}
+    cast(Any, pyicloud_service.session).data = {
+        "scnt": "test_scnt",
+        "session_id": "test_session_id",
+    }
+
+    with pytest.raises(RuntimeError, match="unexpected start crash"):
+        pyicloud_service.request_2fa_code()
+
+    assert pyicloud_service._two_factor_code_requested is False
+
+
+def test_request_2fa_code_releases_in_flight_flag_on_keyboard_interrupt(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """In-flight flag must be released when bridge.start() raises KeyboardInterrupt."""
+
+    pyicloud_service._auth_data = {
+        "authInitialRoute": "auth/bridge/step",
+        "hasTrustedDevices": True,
+        "bridgeInitiateData": {
+            "apnsTopic": "com.apple.idmsauthwidget",
+            "apnsEnvironment": "prod",
+            "webSocketUrl": "websocket.push.apple.com",
+        },
+    }
+    bridge = MagicMock()
+    bridge.start.side_effect = KeyboardInterrupt
+    pyicloud_service._trusted_device_bridge = bridge
+    pyicloud_service._session = MagicMock()
+    pyicloud_service.session.headers = {"User-Agent": "test-agent"}
+    cast(Any, pyicloud_service.session).data = {
+        "scnt": "test_scnt",
+        "session_id": "test_session_id",
+    }
+
+    with pytest.raises(KeyboardInterrupt):
+        pyicloud_service.request_2fa_code()
+
+    assert pyicloud_service._two_factor_code_requested is False
+
+    # A later request_2fa_code() attempts a new delivery instead of reusing the flag
+    bridge.start.side_effect = None
+    bridge.start.return_value = MagicMock(spec=TrustedDeviceBridgeState)
+    assert pyicloud_service.request_2fa_code() is True
+    assert pyicloud_service._two_factor_code_requested is True
 
 
 def test_request_2fa_code_requests_sms_delivery(

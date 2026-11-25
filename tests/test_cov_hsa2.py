@@ -302,7 +302,7 @@ def test_bridge_push_payload_next_step_int_and_fields() -> None:
 
 
 def test_bridge_state_apply_push_and_legacy_flag() -> None:
-    """State merges push payloads and flags the legacy verifier."""
+    """State merges push payloads and locks the initial verifier route."""
 
     state = TrustedDeviceBridgeState(
         connection_path="c",
@@ -324,10 +324,11 @@ def test_bridge_state_apply_push_and_legacy_flag() -> None:
     assert state.error_code == 2
     assert state.uses_legacy_trusted_device_verifier is True
 
+    # A later push with a different txnid suffix must not switch routes.
     state.apply_push_payload(
         bridge.BridgePushPayload.from_payload({"sessionUUID": "s", "nextStep": "2"})
     )
-    assert state.uses_legacy_trusted_device_verifier is False
+    assert state.uses_legacy_trusted_device_verifier is True
 
 
 # ---------------------------------------------------------------------------

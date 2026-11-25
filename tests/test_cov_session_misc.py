@@ -241,7 +241,25 @@ def test_clear_persistence_keeps_files_when_requested(
         patch("pyicloud.session.os.remove") as mock_remove,
     ):
         pyicloud_session.clear_persistence(remove_files=False)
-    mock_save.assert_called_once_with()
+    mock_save.assert_called_once_with(raise_errors=True)
+    mock_remove.assert_not_called()
+
+
+def test_clear_persistence_raises_when_resave_fails(
+    pyicloud_session: PyiCloudSession,
+) -> None:
+    """clear_persistence(remove_files=False) raises when saving fails."""
+    with (
+        patch.object(
+            pyicloud_session,
+            "_save_session_data",
+            side_effect=OSError("Disk full"),
+        ) as mock_save,
+        patch("pyicloud.session.os.remove") as mock_remove,
+        pytest.raises(OSError, match="Disk full"),
+    ):
+        pyicloud_session.clear_persistence(remove_files=False)
+    mock_save.assert_called_once_with(raise_errors=True)
     mock_remove.assert_not_called()
 
 
