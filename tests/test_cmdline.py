@@ -2136,6 +2136,14 @@ def test_devices_without_one_factor_uses_the_stored_session() -> None:
         ),
         (PyiCloudConnectionException("No route to host"), "Could not reach iCloud"),
         (PyiCloudFailedLoginException("Denied"), "Bad username or password"),
+        (
+            PyiCloudAPIResponseException(
+                "upstream error",
+                503,
+                MagicMock(status_code=503, text=""),
+            ),
+            "iCloud is unavailable right now",
+        ),
     ],
 )
 def test_devices_one_factor_maps_login_failures_to_aborts(
@@ -3412,6 +3420,54 @@ def test_auth_login_explicit_password_does_not_delete_stored_keyring_secret() ->
     delete_password.assert_not_called()
 
 
+def test_auth_login_server_error_does_not_delete_stored_keyring_secret() -> None:
+    """An Apple 5xx during login is an outage, not a stale stored password."""
+    error = PyiCloudAPIResponseException(
+        "upstream error", 503, MagicMock(status_code=503, text="")
+    )
+
+    with (
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(
+            context_module,
+            "PyiCloudService",
+            side_effect=error,
+        ),
+        patch.object(context_module, "confirm", return_value=False),
+        patch.object(
+            context_module.utils, "password_exists_in_keyring", return_value=True
+        ),
+        patch.object(
+            context_module.utils,
+            "get_password_from_keyring",
+            return_value="stored-secret",
+        ),
+        patch.object(
+            context_module.utils, "delete_password_in_keyring"
+        ) as delete_password,
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "auth",
+                "login",
+                "--username",
+                "user@example.com",
+                "--password",
+                "secret",
+                "--non-interactive",
+                "--session-dir",
+                str(_unique_session_dir("auth-login-outage")),
+            ],
+        )
+
+    assert result.exit_code != 0
+    assert "iCloud is unavailable right now" in str(result.exception)
+    delete_password.assert_not_called()
+
+
 def test_account_lock_cli_handlers_preserve_stored_keyring_secret() -> None:
     """CLI account-lock handlers should preserve credentials and give guidance."""
     error = context_module.PyiCloudAccountLockedException("-20209", MagicMock())
@@ -3769,6 +3825,113 @@ def test_trusted_device_2fa_retries_invalid_codes_before_success() -> None:
         call("222222"),
         call("333333"),
     ]
+
+
+def test_spent_challenge_requests_replacement_code() -> None:
+    """A consumed bridge challenge triggers one replacement and a fresh code."""
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.two_factor_delivery_method = "trusted_device"
+    fake_api.request_2fa_code.return_value = True
+    fake_api.validate_2fa_code.side_effect = [
+        context_module.PyiCloudTrustedDeviceChallengeRequiredException("spent"),
+        True,
+    ]
+
+    with patch.object(context_module.typer, "prompt", side_effect=["111111", "222222"]):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code == 0
+    assert "a new code has been requested" in _unwrapped(result)
+    assert fake_api.request_2fa_code.call_count == 2  # initial + replacement
+    assert fake_api.validate_2fa_code.call_args_list == [
+        call("111111"),
+        call("222222"),
+    ]
+
+
+def test_spent_challenge_announces_replacement_delivery_route() -> None:
+    """The replacement request reports where its new code was delivered.
+
+    A replacement can fall back to SMS, so the delivery notice must be
+    re-announced instead of leaving the original trusted-device message.
+    """
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.two_factor_delivery_method = "trusted_device"
+
+    request_count = {"calls": 0}
+
+    def request_with_sms_fallback() -> bool:
+        request_count["calls"] += 1
+        if request_count["calls"] > 1:
+            fake_api.two_factor_delivery_method = "sms"
+            fake_api.two_factor_delivery_notice = (
+                "Trusted-device prompt failed; falling back to SMS."
+            )
+        return True
+
+    fake_api.request_2fa_code.side_effect = request_with_sms_fallback
+    fake_api.validate_2fa_code.side_effect = [
+        context_module.PyiCloudTrustedDeviceChallengeRequiredException("spent"),
+        True,
+    ]
+
+    with patch.object(context_module.typer, "prompt", side_effect=["111111", "222222"]):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    output = _unwrapped(result)
+    assert result.exit_code == 0
+    assert "a new code has been requested" in output
+    assert "Trusted-device prompt failed; falling back to SMS." in output
+    assert "Requested a 2FA code by SMS." in output
+    assert fake_api.request_2fa_code.call_count == 2  # initial + replacement
+
+
+def test_spent_challenge_exhausts_attempts() -> None:
+    """Repeated spent challenges stop at the existing attempt limit."""
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.two_factor_delivery_method = "trusted_device"
+    fake_api.request_2fa_code.return_value = True
+    fake_api.validate_2fa_code.side_effect = (
+        context_module.PyiCloudTrustedDeviceChallengeRequiredException("spent")
+    )
+
+    with patch.object(
+        context_module.typer, "prompt", side_effect=["111111", "222222", "333333"]
+    ):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert fake_api.validate_2fa_code.call_args_list == [
+        call("111111"),
+        call("222222"),
+        call("333333"),
+    ]
+    assert fake_api.request_2fa_code.call_count == 3  # initial + 2 replacements
+
+
+def test_spent_challenge_prompt_failure_aborts() -> None:
+    """A failed replacement prompt is reported instead of issuing a traceback."""
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.two_factor_delivery_method = "trusted_device"
+    fake_api.request_2fa_code.side_effect = [
+        True,
+        context_module.PyiCloudTrustedDevicePromptException("no prompt"),
+    ]
+    fake_api.validate_2fa_code.side_effect = (
+        context_module.PyiCloudTrustedDeviceChallengeRequiredException("spent")
+    )
+
+    with patch.object(context_module.typer, "prompt", side_effect=["111111"]):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert "Failed to request the 2FA trusted-device prompt." in str(result.exception)
+    assert fake_api.validate_2fa_code.call_args_list == [call("111111")]
+    assert fake_api.request_2fa_code.call_count == 2
 
 
 def test_sms_2fa_aborts_after_three_invalid_codes() -> None:
@@ -5936,6 +6099,31 @@ def test_main_returns_clean_error_for_expected_cli_error(
     assert code == 1
     assert captured.out == ""
     assert captured.err == f"{message}\n"
+
+
+def test_main_reports_server_error_without_traceback(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A classified Apple 5xx at the top level gets a retry hint."""
+    error = PyiCloudAPIResponseException(
+        "upstream error", 503, MagicMock(status_code=503, text="")
+    )
+
+    with patch.object(cli_module, "app", side_effect=error):
+        code = cli_module.main()
+    assert code == 1
+    assert "iCloud is unavailable right now" in capsys.readouterr().err
+
+
+def test_main_reraises_non_server_api_error() -> None:
+    """Only classified 5xx errors are swallowed at the top level."""
+    error = PyiCloudAPIResponseException("bad request", 400)
+
+    with (
+        patch.object(cli_module, "app", side_effect=error),
+        pytest.raises(PyiCloudAPIResponseException),
+    ):
+        cli_module.main()
 
 
 def _advertised_webservices() -> dict[str, Any]:
