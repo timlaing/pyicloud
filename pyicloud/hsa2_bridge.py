@@ -32,6 +32,7 @@ from pydantic import (
 )
 
 from pyicloud.exceptions import (
+    PyiCloudAPIResponseException,
     PyiCloudTrustedDevicePromptException,
     PyiCloudTrustedDeviceVerificationException,
 )
@@ -279,6 +280,7 @@ class TrustedDeviceBridgeState:
     data: str | None = None
     encrypted_code: str | None = None
     error_code: int | None = None
+    initial_uses_legacy_verifier: bool | None = None
 
     def apply_push_payload(self, push_payload: BridgePushPayload) -> None:
         """Persist the latest bridge push metadata in the live bridge session."""
@@ -288,6 +290,10 @@ class TrustedDeviceBridgeState:
         self.next_step = push_payload.next_step
         self.rui_url_key = push_payload.rui_url_key
         self.txnid = push_payload.txnid
+        if self.initial_uses_legacy_verifier is None:
+            self.initial_uses_legacy_verifier = bool(
+                push_payload.txnid and push_payload.txnid.endswith("_W")
+            )
         self.salt = push_payload.salt
         self.mid = push_payload.mid
         self.idmsdata = push_payload.idmsdata
@@ -300,6 +306,8 @@ class TrustedDeviceBridgeState:
     def uses_legacy_trusted_device_verifier(self) -> bool:
         """Return whether Apple routed this bridge challenge to the legacy verifier."""
 
+        if self.initial_uses_legacy_verifier is not None:
+            return self.initial_uses_legacy_verifier
         return bool(self.txnid and self.txnid.endswith("_W"))
 
 
@@ -560,6 +568,31 @@ def _encode_string_field(field_number: int, value: str) -> bytes:
 def _encode_uint32_field(field_number: int, value: int) -> bytes:
     """Encode an unsigned integer protobuf field."""
     return _encode_field(field_number, 0, _encode_varint(value))
+
+
+def _require_active_bridge_websocket(
+    bridge_state: TrustedDeviceBridgeState,
+) -> _WebSocketLike:
+    """Return the live websocket of a bridge challenge ready for verification."""
+
+    websocket = bridge_state.websocket
+    if websocket is None:
+        raise PyiCloudTrustedDeviceVerificationException(
+            "Trusted-device bridge session is not active."
+        )
+    if bridge_state.uses_legacy_trusted_device_verifier:
+        raise PyiCloudTrustedDeviceVerificationException(
+            "Legacy trusted-device verification should bypass the bridge verifier."
+        )
+    if bridge_state.next_step not in {"2", 2}:
+        raise PyiCloudTrustedDeviceVerificationException(
+            "Trusted-device bridge is not ready for step 2 verification."
+        )
+    if not bridge_state.salt:
+        raise PyiCloudTrustedDeviceVerificationException(
+            "Trusted-device bridge payload is missing the step-2 salt."
+        )
+    return websocket
 
 
 def _decode_fields(data: bytes) -> dict[int, list[Any]]:
@@ -1176,17 +1209,8 @@ class TrustedDeviceBridgeBootstrapper:
                 public_key, nonce, signature
             )
             connection_path = connection_message.hex()
-            websocket_url = f"wss://{websocket_host}/v2/{connection_path}"
-            LOGGER.debug(
-                "Opening trusted-device websocket: host=%s bootstrapPayloadLen=%d",
-                websocket_host,
-                len(connection_path),
-            )
-            websocket = self._websocket_factory(
-                websocket_url,
-                self.timeout,
-                origin,
-                user_agent,
+            websocket = self._open_bootstrap_websocket(
+                websocket_host, origin, connection_path, user_agent
             )
             keep_websocket_open = False
 
@@ -1281,6 +1305,33 @@ class TrustedDeviceBridgeBootstrapper:
             "Failed to bootstrap the trusted-device bridge prompt."
         ) from last_error
 
+    def _open_bootstrap_websocket(
+        self,
+        websocket_host: str,
+        origin: str,
+        connection_path: str,
+        user_agent: str,
+    ) -> _WebSocketLike:
+        """Open the bootstrap websocket and translate transport failures."""
+
+        websocket_url = f"wss://{websocket_host}/v2/{connection_path}"
+        LOGGER.debug(
+            "Opening trusted-device websocket: host=%s bootstrapPayloadLen=%d",
+            websocket_host,
+            len(connection_path),
+        )
+        try:
+            return self._websocket_factory(
+                websocket_url,
+                self.timeout,
+                origin,
+                user_agent,
+            )
+        except OSError as exc:
+            raise PyiCloudTrustedDevicePromptException(
+                f"Trusted-device bridge websocket connection failed: {exc}"
+            ) from exc
+
     def _generate_keypair(self) -> tuple[bytes, ec.EllipticCurvePrivateKey]:
         """Generate the ephemeral P-256 keypair used for websocket bootstrap."""
         private_key = ec.generate_private_key(ec.SECP256R1())
@@ -1322,24 +1373,7 @@ class TrustedDeviceBridgeBootstrapper:
     ) -> bool:
         """Run Apple's bridge-specific trusted-device verification flow."""
 
-        websocket = bridge_state.websocket
-        if websocket is None:
-            raise PyiCloudTrustedDeviceVerificationException(
-                "Trusted-device bridge session is not active."
-            )
-        if bridge_state.uses_legacy_trusted_device_verifier:
-            raise PyiCloudTrustedDeviceVerificationException(
-                "Legacy trusted-device verification should bypass the bridge verifier."
-            )
-        if bridge_state.next_step not in {"2", 2}:
-            raise PyiCloudTrustedDeviceVerificationException(
-                "Trusted-device bridge is not ready for step 2 verification."
-            )
-        if not bridge_state.salt:
-            raise PyiCloudTrustedDeviceVerificationException(
-                "Trusted-device bridge payload is missing the step-2 salt."
-            )
-
+        websocket = _require_active_bridge_websocket(bridge_state)
         prover = self._prover_factory()
         bridge_headers = self._bridge_headers(headers, bridge_state)
 
@@ -1352,7 +1386,7 @@ class TrustedDeviceBridgeBootstrapper:
                 _summarize_identifier(bridge_state.txnid, prefix=12),
             )
 
-            prover.init_with_salt(bridge_state.salt, code)
+            prover.init_with_salt(cast(str, bridge_state.salt), code)
             message1 = prover.get_message1()
             LOGGER.debug(
                 "Posting trusted-device bridge step 2 with sessionUUID=%s",
@@ -1469,16 +1503,26 @@ class TrustedDeviceBridgeBootstrapper:
                 _summarize_identifier(bridge_state.session_uuid),
                 verify_response.status_code,
             )
-            self._post_bridge_step(
-                session=session,
-                auth_endpoint=auth_endpoint,
-                headers=bridge_headers,
-                bridge_state=bridge_state,
-                next_step=completion_step,
-                data=BRIDGE_DONE_DATA_B64,
-                idmsdata=bridge_state.idmsdata,
-                akdata=bridge_state.akdata,
-            )
+            try:
+                self._post_bridge_step(
+                    session=session,
+                    auth_endpoint=auth_endpoint,
+                    headers=bridge_headers,
+                    bridge_state=bridge_state,
+                    next_step=completion_step,
+                    data=BRIDGE_DONE_DATA_B64,
+                    idmsdata=bridge_state.idmsdata,
+                    akdata=bridge_state.akdata,
+                )
+            except (PyiCloudAPIResponseException, OSError) as exc:
+                LOGGER.warning(
+                    "Trusted-device bridge completion step %s POST failed "
+                    "after code validation succeeded: %s",
+                    completion_step,
+                    exc,
+                )
+                if not verification_succeeded:
+                    raise
             return cast(bool, verification_succeeded)
         except PyiCloudTrustedDevicePromptException as exc:
             raise PyiCloudTrustedDeviceVerificationException(

@@ -14,6 +14,8 @@ from unittest.mock import MagicMock, call
 import pytest
 
 from pyicloud.exceptions import (
+    PyiCloudAPIResponseException,
+    PyiCloudConnectionException,
     PyiCloudTrustedDevicePromptException,
     PyiCloudTrustedDeviceVerificationException,
 )
@@ -23,6 +25,7 @@ from pyicloud.hsa2_bridge import (
     BridgePushPayload,
     Hsa2BootContext,
     TrustedDeviceBridgeBootstrapper,
+    TrustedDeviceBridgeState,
     _encode_ack_message,
     _encode_bytes_field,
     _encode_string_field,
@@ -1873,3 +1876,331 @@ def test_validate_code_malformed_push_routes_to_verification_failure(
     assert isinstance(exc_info.value.__cause__, PyiCloudTrustedDevicePromptException)
     assert "Malformed bridge push message ID" in str(exc_info.value.__cause__)
     assert session.request_raw.call_count == 2
+
+
+def test_start_translates_websocket_oserror_to_prompt_exception() -> None:
+    """Websocket connection failures should become prompt exceptions."""
+
+    def failing_websocket_factory(*_args: Any) -> Any:
+        raise OSError("Connection refused")
+
+    bootstrapper = TrustedDeviceBridgeBootstrapper(
+        timeout=1.0,
+        websocket_factory=failing_websocket_factory,
+    )
+    session = MagicMock()
+    boot_context = _boot_context()
+    with pytest.raises(
+        PyiCloudTrustedDevicePromptException,
+        match="websocket connection failed: Connection refused",
+    ):
+        bootstrapper.start(
+            session=session,
+            auth_endpoint="https://idmsa.apple.com/appleauth/auth",
+            headers={"scnt": "test-scnt"},
+            boot_context=boot_context,
+            user_agent="test-agent",
+        )
+
+
+def test_state_locks_initial_route_against_changed_txnid_suffix() -> None:
+    """A later txnid suffix cannot alter the initial verifier route."""
+
+    state = TrustedDeviceBridgeState(
+        connection_path="path",
+        push_token="token",
+        session_uuid="uuid",
+        websocket=None,
+        topic="topic",
+        topics_by_hash={},
+    )
+    # Initial push routed to standard bridge
+    initial_push = BridgePushPayload.from_payload({
+        "sessionUUID": "uuid",
+        "nextStep": "2",
+        "txnid": "txn_123_S",
+    })
+    state.apply_push_payload(initial_push)
+    assert state.uses_legacy_trusted_device_verifier is False
+
+    # Subsequent push carries _W suffix; route must remain standard bridge
+    followup_push = BridgePushPayload.from_payload({
+        "sessionUUID": "uuid",
+        "nextStep": "4",
+        "txnid": "txn_123_W",
+    })
+    state.apply_push_payload(followup_push)
+    assert state.uses_legacy_trusted_device_verifier is False
+
+    # Conversely, initial push routed to legacy verifier stays legacy
+    legacy_state = TrustedDeviceBridgeState(
+        connection_path="path",
+        push_token="token",
+        session_uuid="uuid",
+        websocket=None,
+        topic="topic",
+        topics_by_hash={},
+    )
+    legacy_initial_push = BridgePushPayload.from_payload({
+        "sessionUUID": "uuid",
+        "nextStep": "2",
+        "txnid": "txn_123_W",
+    })
+    legacy_state.apply_push_payload(legacy_initial_push)
+    assert legacy_state.uses_legacy_trusted_device_verifier is True
+
+    legacy_followup_push = BridgePushPayload.from_payload({
+        "sessionUUID": "uuid",
+        "nextStep": "4",
+        "txnid": "txn_123_S",
+    })
+    legacy_state.apply_push_payload(legacy_followup_push)
+    assert legacy_state.uses_legacy_trusted_device_verifier is True
+
+
+def test_validate_code_keeps_accepted_validation_on_completion_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed completion POST must not discard an accepted code."""
+
+    topic = "com.apple.idmsauthwidget"
+    initial_push: dict[str, object] = {
+        "sessionUUID": "bridge-session",
+        "nextStep": "2",
+        "txnid": "2300_282820214_S",
+        "salt": base64.b64encode(b"0123456789abcdef").decode("ascii"),
+        "mid": "bridge-mid",
+        "idmsdata": "initial-idms",
+    }
+    server_message1_hex = "aa01"
+    server_message2_hex = "bb02"
+    step4_data = base64.b64encode(
+        (
+            _hex_to_b64(server_message1_hex) + "_" + _hex_to_b64(server_message2_hex)
+        ).encode("utf-8")
+    ).decode("ascii")
+    step4_push: dict[str, object] = {
+        "sessionUUID": "bridge-session",
+        "nextStep": "4",
+        "txnid": "2300_282820214_S",
+        "data": step4_data,
+        "idmsdata": "step4-idms",
+    }
+    step6_push: dict[str, object] = {
+        "sessionUUID": "bridge-session",
+        "nextStep": "6",
+        "txnid": "2300_282820214_S",
+        "encryptedCode": "ciphertext",
+        "idmsdata": "step6-idms",
+        "mid": "bridge-mid",
+    }
+    websocket = _FakeWebSocket([
+        _encode_connection_response(b"push-token"),
+        _encode_channel_subscription_response(topic),
+        _encode_push_message(topic, initial_push, 2300),
+        _encode_push_message(topic, step4_push, 2301),
+        _encode_push_message(topic, step6_push, 2302),
+    ])
+    prover = MagicMock()
+    prover.get_message1.return_value = "abcd"
+    prover.process_message1.return_value = "ef01"
+    prover.process_message2.return_value = {"isVerified": True, "key": "deadbeef"}
+    prover.get_key.return_value = "deadbeef"
+    prover.decrypt_message.return_value = "derived-device-code"
+
+    bootstrapper = TrustedDeviceBridgeBootstrapper(
+        timeout=1.0,
+        websocket_factory=lambda *_args: websocket,
+        prover_factory=lambda: prover,
+    )
+    monkeypatch.setattr(
+        bootstrapper,
+        "_generate_keypair",
+        MagicMock(return_value=(b"\x04public-key", _FakePrivateKey())),
+    )
+    monkeypatch.setattr(
+        bootstrapper,
+        "_generate_session_uuid",
+        MagicMock(return_value="bridge-session"),
+    )
+
+    session = MagicMock()
+    # Step 0, Step 2, Step 4, Code validate (200 OK), Step 6 fails with connection error
+    session.request_raw.side_effect = [
+        _response(200),
+        _response(200),
+        _response(200),
+        _response(200),
+        PyiCloudConnectionException("Completion step timeout"),
+    ]
+
+    state = bootstrapper.start(
+        session=session,
+        auth_endpoint="https://idmsa.apple.com/appleauth/auth",
+        headers={"scnt": "test-scnt"},
+        boot_context=_boot_context(topic),
+        user_agent="test-agent",
+    )
+
+    # Verification must succeed despite completion step failure
+    verified = bootstrapper.validate_code(
+        session=session,
+        auth_endpoint="https://idmsa.apple.com/appleauth/auth",
+        headers={"scnt": "test-scnt"},
+        bridge_state=state,
+        code="050044",
+    )
+    assert verified is True
+
+
+def test_close_handles_missing_state_and_close_error() -> None:
+    """Cleanup is safe with no socket and tolerates close failures."""
+    bootstrapper = TrustedDeviceBridgeBootstrapper()
+    bootstrapper.close(None)
+
+    websocket = MagicMock()
+    websocket.close.side_effect = OSError("close failed")
+    state = MagicMock()
+    state.websocket = websocket
+    bootstrapper.close(state)
+
+    websocket.close.assert_called_once_with()
+    assert state.websocket is None
+
+
+def test_validate_code_requires_step4_prover_data(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A step-4 push without prover data cannot advance verification."""
+    bootstrapper = TrustedDeviceBridgeBootstrapper()
+    state = MagicMock()
+    state.websocket = MagicMock()
+    state.uses_legacy_trusted_device_verifier = False
+    state.next_step = "2"
+    state.salt = "salt"
+    state.topic = "topic"
+    state.topics_by_hash = {}
+    state.data = None
+    prover = MagicMock()
+    prover.get_message1.return_value = "aa01"
+    bootstrapper._prover_factory = MagicMock(return_value=prover)
+    monkeypatch.setattr(bootstrapper, "_post_bridge_step", MagicMock())
+    monkeypatch.setattr(
+        bootstrapper, "_wait_for_bridge_push", MagicMock(return_value=MagicMock())
+    )
+    monkeypatch.setattr(bootstrapper, "_apply_expected_step4_push", MagicMock())
+
+    with pytest.raises(
+        PyiCloudTrustedDeviceVerificationException,
+        match="step 4 payload is missing prover data",
+    ):
+        bootstrapper.validate_code(
+            session=MagicMock(),
+            auth_endpoint="https://idmsa.apple.com/appleauth/auth",
+            headers={"scnt": "test-scnt"},
+            bridge_state=state,
+            code="050044",
+        )
+
+
+def test_validate_code_requires_final_encrypted_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A final push without encryptedCode cannot complete validation."""
+    bootstrapper = TrustedDeviceBridgeBootstrapper()
+    state = MagicMock()
+    state.websocket = MagicMock()
+    state.uses_legacy_trusted_device_verifier = False
+    state.next_step = "2"
+    state.salt = "salt"
+    state.topic = "topic"
+    state.topics_by_hash = {}
+    state.data = base64.b64encode(
+        (_hex_to_b64("aa01") + "_" + _hex_to_b64("bb02")).encode("utf-8")
+    ).decode("ascii")
+    state.encrypted_code = None
+    prover = MagicMock()
+    prover.get_message1.return_value = "aa01"
+    prover.process_message1.return_value = "ef01"
+    bootstrapper._prover_factory = MagicMock(return_value=prover)
+    monkeypatch.setattr(bootstrapper, "_post_bridge_step", MagicMock())
+    monkeypatch.setattr(
+        bootstrapper, "_wait_for_bridge_push", MagicMock(return_value=MagicMock())
+    )
+    monkeypatch.setattr(bootstrapper, "_apply_expected_step4_push", MagicMock())
+    monkeypatch.setattr(bootstrapper, "_apply_final_bridge_push", MagicMock())
+
+    with pytest.raises(
+        PyiCloudTrustedDeviceVerificationException,
+        match="final payload is missing encryptedCode",
+    ):
+        bootstrapper.validate_code(
+            session=MagicMock(),
+            auth_endpoint="https://idmsa.apple.com/appleauth/auth",
+            headers={"scnt": "test-scnt"},
+            bridge_state=state,
+            code="050044",
+        )
+
+
+def test_validate_code_completion_error_after_rejected_code_reraises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A rejected code with a failed completion POST must surface the error."""
+    bootstrapper = TrustedDeviceBridgeBootstrapper()
+    state = MagicMock()
+    state.websocket = MagicMock()
+    state.uses_legacy_trusted_device_verifier = False
+    state.next_step = "2"
+    state.salt = "salt"
+    state.topic = "topic"
+    state.topics_by_hash = {}
+    state.session_uuid = "bridge-session"
+    state.txnid = "bridge-txn"
+    state.idmsdata = None
+    state.akdata = None
+    state.data = base64.b64encode(
+        (_hex_to_b64("aa01") + "_" + _hex_to_b64("bb02")).encode("utf-8")
+    ).decode("ascii")
+    state.encrypted_code = "ciphertext"
+    prover = MagicMock()
+    prover.get_message1.return_value = "aa01"
+    prover.process_message1.return_value = "ef01"
+    prover.decrypt_message.return_value = "050044"
+    bootstrapper._prover_factory = MagicMock(return_value=prover)
+
+    def post_step(**kwargs: Any) -> MagicMock:
+        if kwargs.get("next_step") == 6:
+            raise PyiCloudAPIResponseException("completion failed")
+        return MagicMock()
+
+    monkeypatch.setattr(
+        bootstrapper, "_post_bridge_step", MagicMock(side_effect=post_step)
+    )
+    monkeypatch.setattr(
+        bootstrapper, "_wait_for_bridge_push", MagicMock(return_value=MagicMock())
+    )
+    monkeypatch.setattr(bootstrapper, "_apply_expected_step4_push", MagicMock())
+
+    def mark_final_step(bridge_state: Any, _payload: Any) -> None:
+        bridge_state.next_step = "6"
+
+    monkeypatch.setattr(
+        bootstrapper,
+        "_apply_final_bridge_push",
+        MagicMock(side_effect=mark_final_step),
+    )
+    monkeypatch.setattr(
+        bootstrapper,
+        "_post_bridge_code_validate",
+        MagicMock(return_value=MagicMock(status_code=412)),
+    )
+
+    with pytest.raises(PyiCloudAPIResponseException, match="completion failed"):
+        bootstrapper.validate_code(
+            session=MagicMock(),
+            auth_endpoint="https://idmsa.apple.com/appleauth/auth",
+            headers={"scnt": "test-scnt"},
+            bridge_state=state,
+            code="050044",
+        )

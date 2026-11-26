@@ -163,30 +163,43 @@ class PyiCloudSession(requests.Session):
                 "Session file could not be read; ignoring persisted state"
             )
 
-    def _save_session_data(self) -> None:
+    def _save_session_data(self, *, raise_errors: bool = False) -> None:
         """Save session_data to file."""
         if self._cookie_directory and not os.path.isdir(self._cookie_directory):
-            os.makedirs(self._cookie_directory, exist_ok=True)
-        with (
-            atomic_path(self.session_path) as temporary,
-            open(temporary, "w", encoding="utf-8") as outfile,
-        ):
-            # Copy to avoid dict mutation during concurrent access
-            dump(
-                {
-                    key: value
-                    for key, value in dict(self._data).items()
-                    if key not in NON_PERSISTED_SESSION_KEYS
-                },
-                outfile,
-            )
-            self.logger.debug("Saved session data to file: %s", self.session_path)
+            try:
+                os.makedirs(self._cookie_directory, exist_ok=True)
+            except OSError as exc:
+                self.logger.warning("Failed to create cookie directory: %s", exc)
+                if raise_errors:
+                    raise
+                return
+        try:
+            with (
+                atomic_path(self.session_path) as temporary,
+                open(temporary, "w", encoding="utf-8") as outfile,
+            ):
+                # Copy to avoid dict mutation during concurrent access
+                dump(
+                    {
+                        key: value
+                        for key, value in dict(self._data).items()
+                        if key not in NON_PERSISTED_SESSION_KEYS
+                    },
+                    outfile,
+                )
+                self.logger.debug("Saved session data to file: %s", self.session_path)
+        except (OSError, ValueError) as exc:
+            self.logger.warning("Failed to save session data: %s", exc)
+            if raise_errors:
+                raise
 
         try:
             cast(PyiCloudCookieJar, self.cookies).save()
             self.logger.debug("Saved cookies data to file: %s", self.cookiejar_path)
         except (OSError, ValueError) as exc:
             self.logger.warning("Failed to save cookies data: %s", exc)
+            if raise_errors:
+                raise
 
     def clear_persistence(self, remove_files: bool = True) -> None:
         """Clear persisted session and cookie state."""
@@ -210,7 +223,7 @@ class PyiCloudSession(requests.Session):
                 except FileNotFoundError:
                     continue
         else:
-            self._save_session_data()
+            self._save_session_data(raise_errors=True)
 
     def _update_session_data(self, response: Response) -> None:
         """Update session_data with new data."""

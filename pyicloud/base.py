@@ -1275,6 +1275,7 @@ class PyiCloudService:
         self._clear_trusted_device_bridge_state()
 
         if self._supports_trusted_device_bridge():
+            self._two_factor_code_requested = True
             try:
                 self._trusted_device_bridge_state = self._trusted_device_bridge.start(
                     session=self.session,
@@ -1287,9 +1288,9 @@ class PyiCloudService:
                     ),
                 )
                 self._set_two_factor_delivery_state("trusted_device")
-                self._two_factor_code_requested = True
                 return True
             except PyiCloudTrustedDevicePromptException:
+                self._two_factor_code_requested = False
                 LOGGER.debug(
                     "Trusted-device bridge bootstrap failed; falling back to "
                     "SMS when available.",
@@ -1299,6 +1300,9 @@ class PyiCloudService:
                     return self._request_sms_2fa_code(
                         notice="Trusted-device prompt failed; falling back to SMS."
                     )
+                raise
+            except BaseException:
+                self._two_factor_code_requested = False
                 raise
 
         if self._can_request_sms_2fa_code():
@@ -1581,8 +1585,12 @@ class PyiCloudService:
     ) -> None:
         """Close the captured bridge challenge when one is still held."""
 
-        if bridge_state is not None:
+        if bridge_state is None:
+            return
+        if self._trusted_device_bridge_state is bridge_state:
             self._clear_trusted_device_bridge_state()
+        else:
+            self._trusted_device_bridge.close(bridge_state)
 
     def _validate_trusted_device_code(self, code: str) -> None:
         """Verifies a verification code received via Apple's legacy device endpoint."""
