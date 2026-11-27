@@ -4022,11 +4022,32 @@ def test_spent_challenge_replacement_api_response_failure() -> None:
         result = _invoke(fake_api, "auth", "login", interactive=True)
 
     assert result.exit_code != 0
-    assert "Failed to request a replacement 2FA code: Bad gateway (502)." in str(
-        result.exception
-    )
+    assert str(result.exception) == "Failed to request a replacement 2FA code (502)."
     assert fake_api.validate_2fa_code.call_args_list == [call("111111")]
     assert fake_api.request_2fa_code.call_count == 2
+
+
+def test_spent_challenge_replacement_error_hides_response_body() -> None:
+    """A replacement API error must not echo an auth response body."""
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.two_factor_delivery_method = "trusted_device"
+    fake_api.request_2fa_code.side_effect = [
+        True,
+        PyiCloudAPIResponseException(
+            "Bad gateway", 502, MagicMock(text="secret-auth-marker")
+        ),
+    ]
+    fake_api.validate_2fa_code.side_effect = (
+        context_module.PyiCloudTrustedDeviceChallengeRequiredException("spent")
+    )
+
+    with patch.object(context_module.typer, "prompt", side_effect=["111111"]):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert str(result.exception) == "Failed to request a replacement 2FA code (502)."
+    assert "secret-auth-marker" not in _unwrapped(result)
 
 
 def test_spent_challenge_replacement_os_error() -> None:
@@ -4073,6 +4094,26 @@ def test_spent_challenge_replacement_no_code_available() -> None:
     )
     assert fake_api.validate_2fa_code.call_args_list == [call("111111")]
     assert fake_api.request_2fa_code.call_count == 2
+
+
+def test_spent_challenge_replacement_requires_security_key() -> None:
+    """A replacement that selects a security key must not ask for a code."""
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.two_factor_delivery_method = "security_key"
+    fake_api.request_2fa_code.side_effect = [True, False]
+    fake_api.validate_2fa_code.side_effect = (
+        context_module.PyiCloudTrustedDeviceChallengeRequiredException("spent")
+    )
+
+    with patch.object(context_module.typer, "prompt", side_effect=["111111"]):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert "This 2FA challenge requires a security key. Connect one and retry." in str(
+        result.exception
+    )
+    assert fake_api.validate_2fa_code.call_args_list == [call("111111")]
 
 
 def test_spent_challenge_prompts_new_code() -> None:

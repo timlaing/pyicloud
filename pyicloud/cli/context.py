@@ -383,6 +383,11 @@ class CLIState:
         try:
             has_code = api.request_2fa_code()
             if not has_code:
+                if api.two_factor_delivery_method == "security_key":
+                    raise CLIAbort(
+                        "This 2FA challenge requires a security key. "
+                        "Connect one and retry."
+                    )
                 raise CLIAbort(
                     "Failed to request a replacement 2FA code; no code is available."
                 )
@@ -401,7 +406,12 @@ class CLIState:
         except PyiCloudTrustedDevicePromptException as exc:
             raise CLIAbort("Failed to request the 2FA trusted-device prompt.") from exc
         except PyiCloudAPIResponseException as exc:
-            raise CLIAbort(f"Failed to request a replacement 2FA code: {exc}.") from exc
+            # API errors can carry an auth response body; expose only the
+            # status code and keep the original error for diagnostics.
+            detail = f" ({exc.code})" if exc.code else ""
+            raise CLIAbort(
+                f"Failed to request a replacement 2FA code{detail}."
+            ) from exc
         except OSError as exc:
             raise CLIAbort(
                 f"Failed to access the session directory ({exc}). "
