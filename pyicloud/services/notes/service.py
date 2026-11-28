@@ -109,6 +109,7 @@ from .models.write import (
     NoteTagResult,
     NoteWriteResult,
 )
+from .protobuf import notes_pb2
 from .rendering.exporter import NoteExporter, build_datasource, decode_and_parse_note
 from .rendering.options import ExportConfig
 from .rendering.renderer import NoteRenderer
@@ -1866,12 +1867,15 @@ class NotesService(BaseService):
             raise NotesError(f"Failed to export note: {note_id}")
         return path
 
-    def render_note(self, note_id: str, **config_kwargs: Any) -> str:
+    def render_note(
+        self, note_id: str, *, password: str | None = None, **config_kwargs: Any
+    ) -> str:
         """
         Render a note to an HTML fragment string.
 
         Args:
             note_id: The UUID of the note to render.
+            password: Optional custom Notes password for local, text-only rendering.
             **config_kwargs: Keyword arguments forwarded to ``ExportConfig`` to
                 tune preview selection or link behavior for the rendered HTML.
 
@@ -1882,6 +1886,14 @@ class NotesService(BaseService):
         target = self._lookup_note_record(note_id)
 
         config = ExportConfig(**config_kwargs)
+        if (
+            str(target.recordType).lower()
+            == NotesRecordType.PasswordProtectedNote.lower()
+        ):
+            summary = self._summary_from_record(target)
+            body = self._read_locked_body(target, summary, password, False)
+            document = notes_pb2.NoteStoreProto.FromString(body.bytes)
+            return NoteRenderer(config).render(document.document.note)
         note = decode_and_parse_note(target)
         if not note:
             return ""
