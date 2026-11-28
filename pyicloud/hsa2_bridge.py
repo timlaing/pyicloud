@@ -32,6 +32,7 @@ from pydantic import (
 )
 
 from pyicloud.exceptions import (
+    PyiCloudAPIResponseException,
     PyiCloudTrustedDevicePromptException,
     PyiCloudTrustedDeviceVerificationException,
 )
@@ -279,6 +280,7 @@ class TrustedDeviceBridgeState:
     data: str | None = None
     encrypted_code: str | None = None
     error_code: int | None = None
+    initial_uses_legacy_verifier: bool | None = None
 
     def apply_push_payload(self, push_payload: BridgePushPayload) -> None:
         """Persist the latest bridge push metadata in the live bridge session."""
@@ -288,6 +290,10 @@ class TrustedDeviceBridgeState:
         self.next_step = push_payload.next_step
         self.rui_url_key = push_payload.rui_url_key
         self.txnid = push_payload.txnid
+        if self.initial_uses_legacy_verifier is None:
+            self.initial_uses_legacy_verifier = bool(
+                push_payload.txnid and push_payload.txnid.endswith("_W")
+            )
         self.salt = push_payload.salt
         self.mid = push_payload.mid
         self.idmsdata = push_payload.idmsdata
@@ -300,6 +306,8 @@ class TrustedDeviceBridgeState:
     def uses_legacy_trusted_device_verifier(self) -> bool:
         """Return whether Apple routed this bridge challenge to the legacy verifier."""
 
+        if self.initial_uses_legacy_verifier is not None:
+            return self.initial_uses_legacy_verifier
         return bool(self.txnid and self.txnid.endswith("_W"))
 
 
@@ -562,6 +570,31 @@ def _encode_uint32_field(field_number: int, value: int) -> bytes:
     return _encode_field(field_number, 0, _encode_varint(value))
 
 
+def _require_active_bridge_websocket(
+    bridge_state: TrustedDeviceBridgeState,
+) -> _WebSocketLike:
+    """Return the live websocket of a bridge challenge ready for verification."""
+
+    websocket = bridge_state.websocket
+    if websocket is None:
+        raise PyiCloudTrustedDeviceVerificationException(
+            "Trusted-device bridge session is not active."
+        )
+    if bridge_state.uses_legacy_trusted_device_verifier:
+        raise PyiCloudTrustedDeviceVerificationException(
+            "Legacy trusted-device verification should bypass the bridge verifier."
+        )
+    if bridge_state.next_step not in {"2", 2}:
+        raise PyiCloudTrustedDeviceVerificationException(
+            "Trusted-device bridge is not ready for step 2 verification."
+        )
+    if not bridge_state.salt:
+        raise PyiCloudTrustedDeviceVerificationException(
+            "Trusted-device bridge payload is missing the step-2 salt."
+        )
+    return websocket
+
+
 def _decode_fields(data: bytes) -> dict[int, list[Any]]:
     """Decode a minimal subset of protobuf wire types into field lists."""
     offset = 0
@@ -592,21 +625,44 @@ def _decode_fields(data: bytes) -> dict[int, list[Any]]:
     return fields
 
 
+def _require_bytes_wire_field(value: Any, error_message: str) -> bytes:
+    """Validate that a wire field is length-delimited bytes."""
+    if not isinstance(value, (bytes, bytearray)):
+        raise PyiCloudTrustedDevicePromptException(error_message)
+    return bytes(value)
+
+
+def _require_uint_wire_field(value: Any, error_message: str) -> int:
+    """Validate that a wire field is an unsigned integer varint."""
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise PyiCloudTrustedDevicePromptException(error_message)
+    return value
+
+
 def _decode_connection_response(message: bytes) -> _ConnectionResponse:
     """Decode the server's websocket bootstrap response."""
     fields = _decode_fields(message)
     push_token_b64 = ""
     if fields.get(1):
+        token_bytes = _require_bytes_wire_field(
+            fields[1][0], "Malformed bridge connection response push token."
+        )
         try:
-            push_token_b64 = fields[1][0].decode("ascii")
+            push_token_b64 = token_bytes.decode("ascii")
         except UnicodeDecodeError as exc:
             raise PyiCloudTrustedDevicePromptException(
                 "Malformed bridge connection response push token."
             ) from exc
-    status = int(fields.get(2, [0])[0])
+    status = _require_uint_wire_field(
+        fields.get(2, [0])[0],
+        "Malformed bridge connection response status.",
+    )
     server_timestamp_seconds = None
     if fields.get(3):
-        server_timestamp_seconds = int(fields[3][0])
+        server_timestamp_seconds = _require_uint_wire_field(
+            fields[3][0],
+            "Malformed bridge connection response timestamp.",
+        )
     return _ConnectionResponse(
         push_token_b64=push_token_b64,
         status=status,
@@ -617,9 +673,18 @@ def _decode_connection_response(message: bytes) -> _ConnectionResponse:
 def _decode_push_message(message: bytes) -> _PushMessage:
     """Decode one push-delivery frame from the bridge websocket."""
     fields = _decode_fields(message)
-    topic = bytes(fields.get(1, [b""])[0])
-    message_id = int(fields.get(2, [0])[0])
-    payload = bytes(fields.get(4, [b""])[0])
+    topic = _require_bytes_wire_field(
+        fields.get(1, [b""])[0],
+        "Malformed bridge push topic.",
+    )
+    message_id = _require_uint_wire_field(
+        fields.get(2, [0])[0],
+        "Malformed bridge push message ID.",
+    )
+    payload = _require_bytes_wire_field(
+        fields.get(4, [b""])[0],
+        "Malformed bridge push payload.",
+    )
     return _PushMessage(topic=topic, message_id=message_id, payload=payload)
 
 
@@ -632,27 +697,61 @@ def _decode_channel_subscription_response(
 
     payload_values = fields.get(1)
     if payload_values:
-        payload_fields = _decode_fields(bytes(payload_values[0]))
+        raw_payload = _require_bytes_wire_field(
+            payload_values[0],
+            "Malformed bridge channel subscription payload.",
+        )
+        payload_fields = _decode_fields(raw_payload)
         for app_response_value in payload_fields.get(1, []):
-            app_response_fields = _decode_fields(bytes(app_response_value))
-            topic_value = app_response_fields.get(1, [b""])[0]
-            if isinstance(topic_value, bytes):
-                topics.append(topic_value.decode("utf-8", "ignore"))
+            raw_app_response = _require_bytes_wire_field(
+                app_response_value,
+                "Malformed bridge channel subscription app response.",
+            )
+            app_response_fields = _decode_fields(raw_app_response)
+            topic_value = _require_bytes_wire_field(
+                app_response_fields.get(1, [b""])[0],
+                "Malformed bridge channel subscription topic.",
+            )
+            topic_name = topic_value.decode("utf-8", "ignore")
+            if topic_name:
+                topics.append(topic_name)
+
+    message_id = _require_uint_wire_field(
+        fields.get(2, [0])[0],
+        "Malformed bridge channel subscription message ID.",
+    )
+    status = _require_uint_wire_field(
+        fields.get(3, [0])[0],
+        "Malformed bridge channel subscription status.",
+    )
+    retry_interval_seconds = _require_uint_wire_field(
+        fields.get(4, [0])[0],
+        "Malformed bridge channel subscription retry interval.",
+    )
 
     return _ChannelSubscriptionResponse(
-        message_id=int(fields.get(2, [0])[0]),
-        status=int(fields.get(3, [0])[0]),
-        retry_interval_seconds=int(fields.get(4, [0])[0]),
-        topics=tuple(topic for topic in topics if topic),
+        message_id=message_id,
+        status=status,
+        retry_interval_seconds=retry_interval_seconds,
+        topics=tuple(topics),
     )
 
 
 def _decode_acknowledgement_message(message: bytes) -> _AcknowledgementMessage:
     """Decode a push acknowledgment frame from the bridge websocket."""
     fields = _decode_fields(message)
-    topic = bytes(fields.get(1, [b""])[0])
-    message_id = int(fields.get(2, [0])[0])
-    delivery_status = int(fields.get(3, [0])[0])
+    topic = _require_bytes_wire_field(
+        fields.get(1, [b""])[0],
+        "Malformed bridge push acknowledgment topic.",
+    )
+    message_id = _require_uint_wire_field(
+        fields.get(2, [0])[0],
+        "Malformed bridge push acknowledgment message ID.",
+    )
+    delivery_status = _require_uint_wire_field(
+        fields.get(3, [0])[0],
+        "Malformed bridge push acknowledgment delivery status.",
+    )
     return _AcknowledgementMessage(
         topic=topic,
         message_id=message_id,
@@ -666,25 +765,37 @@ def _decode_server_message(message: bytes) -> _ServerMessage:
 
     connection_response = None
     if fields.get(SERVER_MESSAGE_CONNECTION_RESPONSE):
-        connection_response = _decode_connection_response(
-            bytes(fields[SERVER_MESSAGE_CONNECTION_RESPONSE][0])
+        raw_conn = _require_bytes_wire_field(
+            fields[SERVER_MESSAGE_CONNECTION_RESPONSE][0],
+            "Malformed bridge connection response field.",
         )
+        connection_response = _decode_connection_response(raw_conn)
 
     push_message = None
     if fields.get(SERVER_MESSAGE_PUSH):
-        push_message = _decode_push_message(bytes(fields[SERVER_MESSAGE_PUSH][0]))
+        raw_push = _require_bytes_wire_field(
+            fields[SERVER_MESSAGE_PUSH][0],
+            "Malformed bridge push message field.",
+        )
+        push_message = _decode_push_message(raw_push)
 
     channel_subscription_response = None
     if fields.get(SERVER_MESSAGE_CHANNEL_SUBSCRIPTION_RESPONSE):
+        raw_channel = _require_bytes_wire_field(
+            fields[SERVER_MESSAGE_CHANNEL_SUBSCRIPTION_RESPONSE][0],
+            "Malformed bridge channel subscription response field.",
+        )
         channel_subscription_response = _decode_channel_subscription_response(
-            bytes(fields[SERVER_MESSAGE_CHANNEL_SUBSCRIPTION_RESPONSE][0])
+            raw_channel
         )
 
     push_acknowledgment = None
     if fields.get(SERVER_MESSAGE_PUSH_ACK):
-        push_acknowledgment = _decode_acknowledgement_message(
-            bytes(fields[SERVER_MESSAGE_PUSH_ACK][0])
+        raw_ack = _require_bytes_wire_field(
+            fields[SERVER_MESSAGE_PUSH_ACK][0],
+            "Malformed bridge push acknowledgment field.",
         )
+        push_acknowledgment = _decode_acknowledgement_message(raw_ack)
 
     return _ServerMessage(
         connection_response=connection_response,
@@ -1098,17 +1209,8 @@ class TrustedDeviceBridgeBootstrapper:
                 public_key, nonce, signature
             )
             connection_path = connection_message.hex()
-            websocket_url = f"wss://{websocket_host}/v2/{connection_path}"
-            LOGGER.debug(
-                "Opening trusted-device websocket: host=%s bootstrapPayloadLen=%d",
-                websocket_host,
-                len(connection_path),
-            )
-            websocket = self._websocket_factory(
-                websocket_url,
-                self.timeout,
-                origin,
-                user_agent,
+            websocket = self._open_bootstrap_websocket(
+                websocket_host, origin, connection_path, user_agent
             )
             keep_websocket_open = False
 
@@ -1203,6 +1305,33 @@ class TrustedDeviceBridgeBootstrapper:
             "Failed to bootstrap the trusted-device bridge prompt."
         ) from last_error
 
+    def _open_bootstrap_websocket(
+        self,
+        websocket_host: str,
+        origin: str,
+        connection_path: str,
+        user_agent: str,
+    ) -> _WebSocketLike:
+        """Open the bootstrap websocket and translate transport failures."""
+
+        websocket_url = f"wss://{websocket_host}/v2/{connection_path}"
+        LOGGER.debug(
+            "Opening trusted-device websocket: host=%s bootstrapPayloadLen=%d",
+            websocket_host,
+            len(connection_path),
+        )
+        try:
+            return self._websocket_factory(
+                websocket_url,
+                self.timeout,
+                origin,
+                user_agent,
+            )
+        except OSError as exc:
+            raise PyiCloudTrustedDevicePromptException(
+                f"Trusted-device bridge websocket connection failed: {exc}"
+            ) from exc
+
     def _generate_keypair(self) -> tuple[bytes, ec.EllipticCurvePrivateKey]:
         """Generate the ephemeral P-256 keypair used for websocket bootstrap."""
         private_key = ec.generate_private_key(ec.SECP256R1())
@@ -1244,24 +1373,7 @@ class TrustedDeviceBridgeBootstrapper:
     ) -> bool:
         """Run Apple's bridge-specific trusted-device verification flow."""
 
-        websocket = bridge_state.websocket
-        if websocket is None:
-            raise PyiCloudTrustedDeviceVerificationException(
-                "Trusted-device bridge session is not active."
-            )
-        if bridge_state.uses_legacy_trusted_device_verifier:
-            raise PyiCloudTrustedDeviceVerificationException(
-                "Legacy trusted-device verification should bypass the bridge verifier."
-            )
-        if bridge_state.next_step not in {"2", 2}:
-            raise PyiCloudTrustedDeviceVerificationException(
-                "Trusted-device bridge is not ready for step 2 verification."
-            )
-        if not bridge_state.salt:
-            raise PyiCloudTrustedDeviceVerificationException(
-                "Trusted-device bridge payload is missing the step-2 salt."
-            )
-
+        websocket = _require_active_bridge_websocket(bridge_state)
         prover = self._prover_factory()
         bridge_headers = self._bridge_headers(headers, bridge_state)
 
@@ -1274,7 +1386,7 @@ class TrustedDeviceBridgeBootstrapper:
                 _summarize_identifier(bridge_state.txnid, prefix=12),
             )
 
-            prover.init_with_salt(bridge_state.salt, code)
+            prover.init_with_salt(cast(str, bridge_state.salt), code)
             message1 = prover.get_message1()
             LOGGER.debug(
                 "Posting trusted-device bridge step 2 with sessionUUID=%s",
@@ -1391,16 +1503,26 @@ class TrustedDeviceBridgeBootstrapper:
                 _summarize_identifier(bridge_state.session_uuid),
                 verify_response.status_code,
             )
-            self._post_bridge_step(
-                session=session,
-                auth_endpoint=auth_endpoint,
-                headers=bridge_headers,
-                bridge_state=bridge_state,
-                next_step=completion_step,
-                data=BRIDGE_DONE_DATA_B64,
-                idmsdata=bridge_state.idmsdata,
-                akdata=bridge_state.akdata,
-            )
+            try:
+                self._post_bridge_step(
+                    session=session,
+                    auth_endpoint=auth_endpoint,
+                    headers=bridge_headers,
+                    bridge_state=bridge_state,
+                    next_step=completion_step,
+                    data=BRIDGE_DONE_DATA_B64,
+                    idmsdata=bridge_state.idmsdata,
+                    akdata=bridge_state.akdata,
+                )
+            except (PyiCloudAPIResponseException, OSError) as exc:
+                LOGGER.warning(
+                    "Trusted-device bridge completion step %s POST failed "
+                    "after code validation succeeded: %s",
+                    completion_step,
+                    exc,
+                )
+                if not verification_succeeded:
+                    raise
             return cast(bool, verification_succeeded)
         except PyiCloudTrustedDevicePromptException as exc:
             raise PyiCloudTrustedDeviceVerificationException(

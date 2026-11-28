@@ -302,7 +302,7 @@ def test_bridge_push_payload_next_step_int_and_fields() -> None:
 
 
 def test_bridge_state_apply_push_and_legacy_flag() -> None:
-    """State merges push payloads and flags the legacy verifier."""
+    """State merges push payloads and locks the initial verifier route."""
 
     state = TrustedDeviceBridgeState(
         connection_path="c",
@@ -324,10 +324,11 @@ def test_bridge_state_apply_push_and_legacy_flag() -> None:
     assert state.error_code == 2
     assert state.uses_legacy_trusted_device_verifier is True
 
+    # A later push with a different txnid suffix must not switch routes.
     state.apply_push_payload(
         bridge.BridgePushPayload.from_payload({"sessionUUID": "s", "nextStep": "2"})
     )
-    assert state.uses_legacy_trusted_device_verifier is False
+    assert state.uses_legacy_trusted_device_verifier is True
 
 
 # ---------------------------------------------------------------------------
@@ -418,7 +419,7 @@ def test_decode_connection_response_variants() -> None:
 
 
 def test_decode_channel_subscription_variants() -> None:
-    """Channel responses without payloads or with non-bytes topics are skipped."""
+    """Channel responses without payloads are skipped; malformed topics fail."""
 
     no_payload = bridge._encode_uint32_field(2, 1)
     response = bridge._decode_channel_subscription_response(no_payload)
@@ -427,8 +428,11 @@ def test_decode_channel_subscription_variants() -> None:
     app_response = bridge._encode_uint32_field(1, 5)
     payload = bridge._encode_bytes_field(1, app_response)
     body = bridge._encode_bytes_field(1, payload) + bridge._encode_uint32_field(2, 1)
-    response = bridge._decode_channel_subscription_response(body)
-    assert not response.topics
+    with pytest.raises(
+        PyiCloudTrustedDevicePromptException,
+        match="Malformed bridge channel subscription topic",
+    ):
+        bridge._decode_channel_subscription_response(body)
 
 
 def test_decode_server_message_includes_push_ack() -> None:
