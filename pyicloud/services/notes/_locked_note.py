@@ -10,6 +10,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.keywrap import InvalidUnwrap, aes_key_unwrap
 
 _MAX_ARCHIVE_BYTES = 1024 * 1024
+MAX_LOCKED_ASSET_BYTES = 16 * 1024 * 1024
 _MAX_METADATA_BYTES = 4096
 _MAX_ITERATIONS = 1_000_000
 _BINARY_PLIST = b"bplist00"
@@ -58,7 +59,11 @@ def _read_bytes(objects: list[Any], root: dict[str, Any], name: str) -> bytes:
 
 def parse_locked_note_envelope(data: bytes) -> LockedNoteEnvelope:
     """Recognize the observed archive, not the outer CloudKit crypto fields."""
-    archive = _read_plist(data, _MAX_ARCHIVE_BYTES)
+    return _parse_envelope(data, _MAX_ARCHIVE_BYTES)
+
+
+def _parse_envelope(data: bytes, limit: int) -> LockedNoteEnvelope:
+    archive = _read_plist(data, limit)
     objects = archive.get("$objects")
     top = archive.get("$top")
     if (
@@ -105,7 +110,15 @@ def parse_locked_note_envelope(data: bytes) -> LockedNoteEnvelope:
 
 def decrypt_locked_note_body(data: bytes, password: str) -> bytes:
     """Return authenticated body bytes using one caller-supplied password."""
-    envelope = parse_locked_note_envelope(data)
+    return _decrypt(parse_locked_note_envelope(data), password)
+
+
+def decrypt_locked_note_asset(data: bytes, password: str) -> bytes:
+    """Authenticate a complete version-2 asset before returning any plaintext."""
+    return _decrypt(_parse_envelope(data, MAX_LOCKED_ASSET_BYTES), password)
+
+
+def _decrypt(envelope: LockedNoteEnvelope, password: str) -> bytes:
     try:
         password_bytes = password.encode("utf-8")
         wrapping_key = pbkdf2_hmac(
