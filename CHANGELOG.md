@@ -27,6 +27,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Allow Pydantic 2.14.1 to match the latest stable Home Assistant runtime pin.
 - Run project Python hooks in the requirements-installed development environment,
   removing duplicated prek dependencies and automated sync commits.
+- Support targeted multiline replacement in ordinary private Notes body
+  paragraphs while preserving formatting and linked objects outside the edit.
 
 ### Fixed
 
@@ -103,6 +105,9 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Raise the minimum supported `pydantic` version to `2.14.3`, keeping runtime requirements and minimum-installation constraints aligned.
 
 - Raise the minimum supported `typing-extensions` version to `4.16.0`, keeping runtime requirements and minimum-installation constraints aligned.
+
+- Support targeted multiline replacement in ordinary private Notes body
+  paragraphs while preserving formatting and linked objects outside the edit.
 
 - Drive library metadata reads (`DriveService.get_node_data`) reject HTTP redirects for all callers, including ordinary library reads, rather than following a different service route.
 

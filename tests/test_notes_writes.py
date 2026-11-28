@@ -1365,13 +1365,99 @@ def test_targeted_text_edit_preserves_surrounding_runs_and_linked_objects() -> N
 
 @pytest.mark.parametrize(
     "old,new",
-    [("Title", "New"), ("\ufffc", "New"), ("old", "old"), ("old", "a\nb"), ("", "New")],
+    [("Title", "New"), ("\ufffc", "New"), ("old", "old"), ("old", "a\rb"), ("", "New")],
 )
 def test_image_edit_rejects_unsafe_replacements(old: str, new: str) -> None:
     """Do not replace titles, object markers, or ambiguous or invalid text."""
     body = zlib.compress(_image_document().SerializeToString())
     with pytest.raises(ValueError):
         replace_inline_note_text(body, old, new)
+
+
+@pytest.mark.parametrize("replacement", ["merged", "one\n\U0001f600\nthree"])
+def test_multiline_edit_keeps_rich_neighbors_and_linked_objects(
+    replacement: str,
+) -> None:
+    """Join or split body lines without changing the surrounding note."""
+    rich = RichNoteBody(
+        paragraphs=(
+            NoteParagraph(style="heading", runs=(NoteTextRun(text="Heading"),)),
+            NoteParagraph(runs=(NoteTextRun(text="Before old", bold=True),)),
+            NoteParagraph(
+                runs=(
+                    NoteTextRun(text="\U0001f600 text", italic=True),
+                    NoteTextRun(text=" after", underline=True),
+                )
+            ),
+            NoteParagraph(
+                style="checklist", checked=True, runs=(NoteTextRun(text="Keep item"),)
+            ),
+        )
+    )
+    obj = InlineObject("untouched-tag", TAG_UTI)
+    before = base64.b64decode(
+        append_inline_note_object(
+            base64.b64decode(encode_new_note("Title", rich).body), obj
+        )
+    )
+    result = replace_inline_note_text(before, "old\n\U0001f600 text", replacement)
+    compressed = base64.b64decode(result.body)
+    assert inline_note_objects(compressed) == (obj,)
+    initial = notes_pb2.NoteStoreProto.FromString(zlib.decompress(before)).document.note
+    edited = notes_pb2.NoteStoreProto.FromString(
+        zlib.decompress(compressed)
+    ).document.note
+    assert edited.note_text == initial.note_text.replace(
+        "old\n\U0001f600 text", replacement
+    )
+    assert edited.attribute_run[:4] == initial.attribute_run[:4]
+    assert edited.attribute_run[-6:] == initial.attribute_run[-6:]
+    assert edited.attribute_run[4].length == len("Before ")
+    assert edited.attribute_run[5].font_weight == notes_pb2.FontWeight.FONT_WEIGHT_BOLD
+    assert (
+        sum(run.length for run in edited.attribute_run)
+        == len(edited.note_text.encode("utf-16-le")) // 2
+    )
+    assert sum(span.length for span in edited.substring if span.tombstone) == 11
+    assert inline_note_objects(
+        base64.b64decode(
+            replace_inline_note_text(compressed, replacement, "one more\nline").body
+        )
+    ) == (obj,)
+
+
+@pytest.mark.parametrize(
+    "old,new,reason",
+    [
+        ("Heading\nBody", "New", "ordinary body paragraphs"),
+        ("Item", "New\nline", "ordinary body paragraphs"),
+        ("Body\nItem", "New", "ordinary body paragraphs"),
+        ("\nHeading", "New", "title separator"),
+        ("Item\n", "New", "final paragraph break"),
+        ("Body", "New\u2028line", "non-empty text"),
+    ],
+)
+def test_multiline_edit_rejects_unsafe_paragraph_changes(
+    old: str, new: str, reason: str
+) -> None:
+    """Protect document structure and reject non-LF line separators."""
+    rich = RichNoteBody(
+        paragraphs=(
+            NoteParagraph(style="heading", runs=(NoteTextRun(text="Heading"),)),
+            NoteParagraph(runs=(NoteTextRun(text="Body"),)),
+            NoteParagraph(style="checklist", runs=(NoteTextRun(text="Item"),)),
+        )
+    )
+    before = base64.b64decode(encode_new_note("Title", rich).body)
+    with pytest.raises(ValueError, match=reason):
+        replace_inline_note_text(before, old, new)
+
+
+def test_multiline_edit_rejects_merging_into_image_paragraph() -> None:
+    """A paragraph join must not relocate a linked image."""
+    before = zlib.compress(_image_document().SerializeToString())
+    with pytest.raises(ValueError, match="ordinary body paragraphs"):
+        replace_inline_note_text(before, "suffix\n", "suffix")
 
 
 @pytest.mark.parametrize(
